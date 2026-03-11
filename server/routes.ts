@@ -1,35 +1,62 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
 import recipesRouter from "./routes/recipes.js";
 import feedRouter from "./routes/feed.js";
 import userRouter from "./routes/user.js";
 import adminRouter from "./routes/admin.js";
-import b2bRouter from "./routes/b2b.js";
 import healthRouter from "./routes/health.js";
-import syncRouter from "./routes/sync.js"; 
+import syncRouter from "./routes/sync.js";
+import taxonomyRouter from "./routes/taxonomy.js";
+import scanRouter from "./routes/scan.js";
+import analyzerRouter from "./routes/analyzer.js";
+import mealLogRouter from "./routes/mealLog.js";
+import householdRouter from "./routes/household.js";
+import mealPlanRouter from "./routes/mealPlan.js";
+import groceryListRouter from "./routes/groceryList.js";
+import budgetRouter from "./routes/budget.js";
+import nutritionDashboardRouter from "./routes/nutritionDashboard.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { idempotencyMiddleware, storeIdempotentResponse } from "./middleware/idempotency.js";
 import userRecipesRouter from "./routes/userRecipes.js";
+import chatRouter from "./routes/chat.js";
+import substitutionRouter from "./routes/substitutions.js";
+import notificationRouter from "./routes/notifications.js";
+import ingredientSearchRouter from "./routes/ingredientSearch.js";
+import uploadsRouter from "./routes/uploads.js";
+import recipeMetaRouter from "./routes/recipeMeta.js";
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export function registerRoutes(app: Express): void {
   // Global middleware
   app.use(idempotencyMiddleware);
   app.use(storeIdempotentResponse);
-  
+
   // API routes
   app.use("/api/v1/recipes", recipesRouter);
   app.use("/api/v1/feed", feedRouter);
   app.use("/api/v1/me", userRouter);
   app.use("/api/v1/admin", adminRouter);
-  app.use("/api/v1/b2b", b2bRouter);
   app.use("/api/v1/sync", syncRouter);
+  app.use("/api/v1/taxonomy", taxonomyRouter);
   app.use("/api/v1/user-recipes", userRecipesRouter);
+  app.use("/api/v1/scan", scanRouter);
+  app.use("/api/v1/analyzer", analyzerRouter);
+  app.use("/api/v1/meal-log", mealLogRouter);
+  app.use("/api/v1/households", householdRouter);
+  app.use("/api/v1/meal-plans", mealPlanRouter);
+  app.use("/api/v1/grocery-lists", groceryListRouter);
+  app.use("/api/v1/budget", budgetRouter);
+  app.use("/api/v1/nutrition-dashboard", nutritionDashboardRouter);
+  app.use("/api/v1/chat", chatRouter);
+  app.use("/api/v1/substitutions", substitutionRouter);
+  app.use("/api/v1/notifications", notificationRouter);
+  app.use("/api/v1/ingredients", ingredientSearchRouter);
+  app.use("/api/v1/uploads", uploadsRouter);
+  app.use("/api/v1/recipe-meta", recipeMetaRouter);
   // Health checks (no /api prefix)
   app.use("/", healthRouter);
-  
-  // Error handling - Note: notFoundHandler will be added after Vite middleware in index.ts
+
+  // Error handling
+  // notFoundHandler catches any unmatched routes BEFORE the generic error handler
+  app.use(notFoundHandler);
   app.use(errorHandler);
 
-  const httpServer = createServer(app);
-  return httpServer;
 }

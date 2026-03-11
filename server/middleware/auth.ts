@@ -2,22 +2,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import type { Request, Response, NextFunction } from "express";
-import { verifyAppwriteJWT, extractJWTFromHeaders } from "../auth/jwt.js";
+import { verifyAppwriteJWT, extractJWTFromHeaders, type UserContext } from "../auth/jwt.js";
 import { handleAdminImpersonation } from "../auth/admin.js";
 import { setCurrentUser } from "../config/database.js";
+import { getB2cCustomerByAppwriteId } from "../services/b2cIdentity.js";
 import { AppError } from "./errorHandler.js";
+import { upsertProfileFromAppwrite } from "../services/supabaseSync.js";
 
-/**
- * Optionally export a light type others can use.
- * (Safe even if the rest of the codebase doesn't import it.)
- */
-export type UserContext = {
-  userId: string;
-  effectiveUserId?: string;
-  isAdmin?: boolean;
-  isImpersonating?: boolean;
-  profile?: any;
-};
+// Re-export for consumers that import from auth.ts
+export type { UserContext };
 
 /**
  * Authentication middleware:
@@ -32,12 +25,14 @@ export async function authMiddleware(
   next: NextFunction
 ) {
   try {
-    // Diagnostics (fixes the old "....env.NODE_ENV" bug)
-    console.log(
-      `[AUTH] ${req.method} ${req.url} (env=${process.env.NODE_ENV}) isAdminRoute=${req.url.includes(
-        "/admin"
-      )}`
-    );
+    // Diagnostics — only log in development to avoid info leak in production
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `[AUTH] ${req.method} ${req.url} (env=${process.env.NODE_ENV}) isAdminRoute=${req.url.includes(
+          "/admin"
+        )}`
+      );
+    }
 
     const jwt = extractJWTFromHeaders(req.headers);
     if (!jwt) {
@@ -57,9 +52,31 @@ export async function authMiddleware(
     // Allow admin read-only impersonation (function enforces rules)
     const ctx = await handleAdminImpersonation(req, baseCtx);
 
+    // Resolve Gold b2c_customers.id once (uses unique index — fast)
+    const effectiveId = ctx.effectiveUserId ?? ctx.userId;
+    let customer = await getB2cCustomerByAppwriteId(effectiveId);
+
+    // Auto-provision: valid Appwrite user but no Supabase row → create one
+    if (!customer) {
+      try {
+        await upsertProfileFromAppwrite({
+          appwriteId: effectiveId,
+          profile: {
+            displayName: ctx.name ?? null,
+            email: ctx.email ?? null,
+          },
+          account: { email: ctx.email ?? null, name: ctx.name ?? null },
+        });
+        customer = await getB2cCustomerByAppwriteId(effectiveId);
+      } catch (e) {
+        console.error("[AUTH] Auto-provision b2c_customers failed:", e);
+      }
+    }
+
     // Expose to downstream handlers (keep it flexible type-wise)
     (req as any).user = {
       ...ctx,
+      b2cCustomerId: customer?.id ?? undefined,
     } as UserContext;
 
     // Set effective user for DB/RLS context
