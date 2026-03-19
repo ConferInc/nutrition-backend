@@ -14,19 +14,22 @@ export function startNotificationCron(): void {
         return;
     }
 
-    // 4 batches daily at 11 AM, 2 PM, 6 PM, 9 PM UTC
-    cron.schedule("0 11,14,18,21 * * *", async () => {
+    // PRD-32: 4 batches at 05,11,17,21 UTC — optimized for global timezone coverage
+    // Each user's triggers are timezone-aware; the daily cap limits total per user
+    cron.schedule("0 5,11,17,21 * * *", async () => {
         console.log("[CRON] Starting notification batch evaluation...");
         const start = Date.now();
 
         try {
             const customerIds = await getActiveCustomerIds();
             let totalDispatched = 0;
+            let totalCapped = 0;
 
             for (const id of customerIds) {
                 try {
                     const result = await evaluateAndDispatchNotifications(id);
                     totalDispatched += result.dispatched;
+                    if (result.capped) totalCapped++;
                 } catch (err) {
                     console.error(`[CRON] Error evaluating customer ${id}:`, err);
                 }
@@ -34,12 +37,12 @@ export function startNotificationCron(): void {
 
             const elapsed = Date.now() - start;
             console.log(
-                `[CRON] Batch complete: ${customerIds.length} customers, ${totalDispatched} dispatched, ${elapsed}ms`
+                `[CRON] Batch complete: ${customerIds.length} customers, ${totalDispatched} dispatched, ${totalCapped} capped, ${elapsed}ms`
             );
         } catch (err) {
             console.error("[CRON] Batch evaluation failed:", err);
         }
     });
 
-    console.log("[CRON] Notification scheduler started (4x daily: 11,14,18,21 UTC)");
+    console.log("[CRON] Notification scheduler started (4x daily: 05,11,17,21 UTC — timezone-aware evaluation)");
 }

@@ -4,7 +4,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { verifyAppwriteJWT, extractJWTFromHeaders, type UserContext } from "../auth/jwt.js";
 import { handleAdminImpersonation } from "../auth/admin.js";
-import { setCurrentUser } from "../config/database.js";
+import { setCurrentUser, executeRaw } from "../config/database.js";
 import { getB2cCustomerByAppwriteId } from "../services/b2cIdentity.js";
 import { AppError } from "./errorHandler.js";
 import { upsertProfileFromAppwrite } from "../services/supabaseSync.js";
@@ -88,17 +88,16 @@ export async function authMiddleware(
     const clientTimezone = req.headers["x-timezone"] as string | undefined;
     if (clientTimezone && customer?.id) {
       // Fire-and-forget: update household timezone if still UTC
-      import("../config/database.js").then(({ executeRaw }) => {
-        executeRaw(
-          `UPDATE gold.households h
-           SET timezone = $1
-           FROM gold.b2c_customers c
-           WHERE h.id = c.household_id
-             AND c.id = $2
-             AND h.timezone = 'UTC'`,
-          [clientTimezone, customer!.id]
-        ).catch(() => { /* ignore tz update failures */ });
-      });
+      // PERF-03: Static import instead of dynamic import() per request
+      executeRaw(
+        `UPDATE gold.households h
+         SET timezone = $1
+         FROM gold.b2c_customers c
+         WHERE h.id = c.household_id
+           AND c.id = $2
+           AND h.timezone = 'UTC'`,
+        [clientTimezone, customer!.id]
+      ).catch(() => { /* ignore tz update failures */ });
     }
 
     return next();

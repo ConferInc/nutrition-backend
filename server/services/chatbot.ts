@@ -1,6 +1,7 @@
 import { ragChat } from "./ragClient.js";
 import { getMemberPrefs, toRagProfile } from "./memberPrefs.js";
 import { getOrCreateHousehold } from "./household.js";
+import { buildRecommendationContext } from "./contextBuilder.js";
 import { db } from "../config/database.js";
 import { chatSessions, b2cCustomers } from "../../shared/goldSchema.js";
 import { eq, desc, and } from "drizzle-orm";
@@ -45,13 +46,22 @@ export async function processMessage(
         .limit(1);
     const displayName = custRow[0]?.fullName ?? undefined;
 
+    // PRD-33: Build contextual recommendation context for chat
+    const context = await buildRecommendationContext(customerId, {
+        timezone: household.timezone ?? undefined,
+        locationCountry: household.locationCountry,
+        locationState: (household as any).locationState,
+        locationZipCode: (household as any).locationZipCode,
+    });
+
     const ragResponse = await ragChat(
         message, customerId, sessionId ?? null,
         memberId, memberProfile,
         household.householdType ?? undefined,
         household.totalMembers ?? undefined,
         household.id,
-        displayName
+        displayName,
+        context
     );
 
     if (ragResponse) {

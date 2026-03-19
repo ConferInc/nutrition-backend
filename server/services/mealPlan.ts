@@ -27,6 +27,7 @@ import { addMealItem } from "./mealLog.js";
 import { resolveCuisineIds } from "./b2cTaxonomy.js";
 import { ragMealCandidates, toRagScope } from "./ragClient.js";
 import { getHouseholdCombinedPrefs, toRagProfile } from "./memberPrefs.js";
+import { auditMealPlanAgainstGuidelines, formatAuditWarnings } from "./foodPyramidValidator.js";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -627,10 +628,28 @@ export async function generateMealPlan(
     const hydratedItems = await hydrateItems(insertedItems);
     console.log("[MealPlan] Hydration complete");
 
+    // PRD-34: USDA Food Pyramid audit
+    const primaryCalTarget = members[0]?.calorieTarget ?? 2000;
+    const recipeLookup = new Map(
+      recipeCatalog.map((r) => [r.id, { recipeId: r.id, title: r.title, calories: r.calories, proteinG: r.proteinG, carbsG: r.carbsG, fatG: r.fatG, fiberG: 0 }])
+    );
+    const foodGroupAudit = await auditMealPlanAgainstGuidelines(
+      validatedMeals.map((m) => ({ recipeId: m.recipeId, servings: m.servings, date: m.date })),
+      recipeLookup,
+      primaryCalTarget,
+      allMemberDiets
+    );
+    const foodGroupWarnings = formatAuditWarnings(foodGroupAudit);
+    if (foodGroupWarnings.length > 0) {
+      console.warn("[MealPlan] USDA food group warnings:", foodGroupWarnings);
+    }
+
     return {
       plan: { ...plan, totalEstimatedCost: totalCost > 0 ? String(totalCost) : null, totalCalories },
       items: hydratedItems,
       generationTimeMs,
+      foodGroupAudit,
+      foodGroupWarnings,
       summary: (() => {
         let out = llmResult.planSummary;
         if (llmFallbackApplied) {
@@ -638,6 +657,9 @@ export async function generateMealPlan(
         }
         if (cuisineFallbackApplied) {
           out = `${out} Note: preferred cuisines were unavailable, so broader recipes were used.`;
+        }
+        if (foodGroupWarnings.length > 0) {
+          out = `${out} ⚠️ ${foodGroupWarnings.join("; ")}`;
         }
         return out;
       })(),

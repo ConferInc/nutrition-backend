@@ -1,6 +1,9 @@
 // server/services/ragClient.ts
 // PRD-09: Circuit breaker + SQL fallback client for RAG API
+// PRD-33: Context param added to ragFeed, ragSearch, ragChat
 // ─────────────────────────────────────────────────────────
+
+import type { RecommendationContext } from "./contextBuilder.js";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -295,6 +298,7 @@ export async function ragSearch(params: {
     member_profile?: Record<string, unknown>;
     household_id?: string;
     scope?: string;
+    context?: RecommendationContext;
 }): Promise<RagSearchResult | null> {
     return callRag<RagSearchResult>("search", params);
 }
@@ -313,7 +317,8 @@ export async function ragFeed(
     totalMembers?: number,
     householdId?: string,
     scope?: string,
-    mealType?: string
+    mealType?: string,
+    context?: RecommendationContext
 ): Promise<RagFeedResult | null> {
     return callRag<RagFeedResult>("feed", {
         customer_id: customerId,
@@ -325,6 +330,7 @@ export async function ragFeed(
         ...(householdId ? { household_id: householdId } : {}),
         ...(scope ? { scope } : {}),
         ...(mealType ? { meal_type: mealType } : {}),
+        ...(context ? { context } : {}),
     });
 }
 
@@ -406,7 +412,8 @@ export async function ragChat(
     householdType?: string,
     totalMembers?: number,
     householdId?: string,
-    displayName?: string
+    displayName?: string,
+    context?: RecommendationContext
 ): Promise<RagChatResult | null> {
     return callRag<RagChatResult>("chatbot", {
         message,
@@ -418,6 +425,7 @@ export async function ragChat(
         ...(totalMembers ? { total_members: totalMembers } : {}),
         ...(householdId ? { household_id: householdId } : {}),
         ...(displayName ? { display_name: displayName } : {}),
+        ...(context ? { context } : {}),
     });
 }
 
