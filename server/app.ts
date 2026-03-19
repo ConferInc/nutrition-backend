@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { registerRoutes } from "./routes.js"; // your existing router
 
 const app = express();
@@ -12,7 +13,9 @@ const WEB_ORIGINS = (process.env.WEB_ORIGINS ?? "http://127.0.0.1:3000,http://lo
   .split(",")
   .map(s => s.trim())
   .filter(Boolean);
-const CORS_ALLOW_ALL = process.env.CORS_ALLOW_ALL === "1";
+// SEC-03: Ignore CORS_ALLOW_ALL in production to prevent accidental open CORS
+const CORS_ALLOW_ALL =
+  process.env.CORS_ALLOW_ALL === "1" && process.env.NODE_ENV !== "production";
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const toOrigin = (value: string): string => {
@@ -66,6 +69,10 @@ const corsOptions: cors.CorsOptions = {
   credentials: true,
   maxAge: 86400,
 };
+
+// SEC-04: Security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
+// Must be before CORS so headers are always present.
+app.use(helmet());
 
 // MUST be before any routes or auth middleware
 app.use(cors(corsOptions));

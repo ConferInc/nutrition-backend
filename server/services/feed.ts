@@ -1,7 +1,9 @@
 import { executeRaw } from "../config/database.js";
 import { getRecipeAllergenMap, getRecipeNutritionMap, hydrateRecipesByIds } from "./recipeHydration.js";
-import { ragFeed } from "./ragClient.js";
+import { ragFeed, toRagScope } from "./ragClient.js";
+import { getOrCreateHousehold } from "./household.js";
 import { getMemberPrefs, toRagProfile, type MemberPrefs } from "./memberPrefs.js";
+import { buildRecommendationContext } from "./contextBuilder.js";
 
 export interface FeedResult {
   recipe: any;
@@ -292,8 +294,26 @@ export async function getPersonalizedFeedWithRAG(
     memberProfile = toRagProfile(memberFullPrefs);
   }
 
+  // Resolve household context for RAG personalization
+  const household = await getOrCreateHousehold(b2cCustomerId);
+
+  // PRD-33: Build contextual recommendation context (time, season, cuisine, calories)
+  const context = await buildRecommendationContext(b2cCustomerId, {
+    timezone: household.timezone ?? undefined,
+    locationCountry: household.locationCountry,
+    locationState: (household as any).locationState,
+    locationZipCode: (household as any).locationZipCode,
+  });
+
   // Try graph-powered personalization first
-  const graphFeed = await ragFeed(b2cCustomerId, prefs, memberId, memberProfile);
+  const graphFeed = await ragFeed(
+      b2cCustomerId, prefs, memberId, memberProfile,
+      household.householdType ?? undefined,
+      household.totalMembers ?? undefined,
+      household.id,
+      toRagScope(household.householdType),
+      undefined, context
+  );
 
   if (graphFeed && graphFeed.results.length > 0) {
     // Graph returned scored + explained results — hydrate from PG

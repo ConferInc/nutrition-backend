@@ -22,8 +22,10 @@ import {
   b2cCustomerAllergens,
   b2cCustomerHealthConditions,
   b2cCustomerSettings,
+  households,
 } from "../../shared/goldSchema.js";
 import { eq } from "drizzle-orm";
+import { getOrCreateHousehold } from "../services/household.js";
 import {
   getSavedRecipes,
   logRecipeHistory,
@@ -538,6 +540,10 @@ const settingsSchema = z.object({
   dislikedIngredients: z.array(z.string()).optional(),
   timeRangeMin: z.number().optional(),
   timeRangeMax: z.number().optional(),
+  // PRD-33: Location (saved to households table)
+  locationCountry: z.string().optional().nullable(),
+  locationState: z.string().optional().nullable(),
+  locationZipCode: z.string().optional().nullable(),
   // Goals
   healthGoal: z.string().optional().nullable(),
   targetWeightKg: z.number().optional().nullable(),
@@ -598,6 +604,9 @@ router.get("/settings", authMiddleware, rateLimitMiddleware, async (req, res, ne
     );
     const preferredCuisines = cuisineRows.map((r: any) => r.name);
 
+    // PRD-33: Fetch household location
+    const household = await getOrCreateHousehold(id);
+
     const s = settingsRows[0] as any;
     const h = healthRows[0] as any;
 
@@ -639,6 +648,10 @@ router.get("/settings", authMiddleware, rateLimitMiddleware, async (req, res, ne
       filterSugarMax: parseFloat(s?.filter_sugar_max ?? s?.filterSugarMax) || 60,
       filterSodiumMax: s?.filter_sodium_max ?? s?.filterSodiumMax ?? 2300,
       filterMaxTime: s?.filter_max_time ?? s?.filterMaxTime ?? 120,
+      // PRD-33: Location (from household)
+      locationCountry: household.locationCountry ?? null,
+      locationState: (household as any).locationState ?? null,
+      locationZipCode: (household as any).locationZipCode ?? null,
     });
   } catch (err) {
     next(err);
@@ -741,6 +754,17 @@ router.patch("/settings", authMiddleware, rateLimitMiddleware, async (req, res, 
     }
 
     res.json({ ok: true });
+
+    // PRD-33: Location → households table
+    if (body.locationCountry !== undefined || body.locationState !== undefined || body.locationZipCode !== undefined) {
+      const hh = await getOrCreateHousehold(id);
+      await db.update(households).set({
+        ...(body.locationCountry !== undefined ? { locationCountry: body.locationCountry } : {}),
+        ...(body.locationState !== undefined ? { locationState: body.locationState } : {}),
+        ...(body.locationZipCode !== undefined ? { locationZipCode: body.locationZipCode } : {}),
+        updatedAt: new Date(),
+      }).where(eq(households.id, hh.id));
+    }
   } catch (err) {
     next(err);
   }

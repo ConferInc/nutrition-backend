@@ -6,6 +6,13 @@ import { executeRaw } from "../config/database.js";
 import { createNotification } from "./notifications.js";
 import { getStreak } from "./mealLog.js";
 
+// ── PRD-32: Configurable Daily Cap ───────────────────────────────────────────
+
+const MAX_DAILY_NOTIFICATIONS = parseInt(
+    process.env.MAX_DAILY_NOTIFICATIONS ?? "2",
+    10
+);
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface FallbackTemplate {
@@ -24,6 +31,7 @@ interface TriggerResult {
 type TriggerType =
     | "missed_breakfast"
     | "missed_lunch"
+    | "missed_dinner"
     | "high_fat_2day"
     | "low_protein_3day"
     | "calorie_overshoot_3day"
@@ -31,7 +39,8 @@ type TriggerType =
     | "streak_milestone"
     | "streak_broken"
     | "suggest_breakfast"
-    | "suggest_lunch";
+    | "suggest_lunch"
+    | "suggest_dinner";
 
 // ── Fallback Templates (all 10 user stories) ────────────────────────────────
 
@@ -116,10 +125,47 @@ const FALLBACK_TEMPLATES: Record<TriggerType, FallbackTemplate> = {
         type: "meal",
         action_url: "/search?q=lunch",
     },
+    // AN-11: Missed dinner (PRD-32)
+    missed_dinner: {
+        title: "How was dinner? 🌙",
+        body: "You haven't logged dinner yet — tap to log what you had!",
+        icon: "🍽️",
+        type: "meal",
+        action_url: "/meal-log?type=dinner",
+    },
+    // AN-12: Proactive dinner suggestion (PRD-32)
+    suggest_dinner: {
+        title: "Dinner time! 🌅",
+        body: "Looking for dinner? Here are options that fit your remaining calorie budget",
+        icon: "🥘",
+        type: "meal",
+        action_url: "/search?q=dinner",
+    },
 };
 
 // Streak milestones we celebrate
 const STREAK_MILESTONES = [7, 14, 30, 60, 100];
+
+// ── PRD-32: Trigger Priority Map (lower = higher priority) ──────────────────
+
+const TRIGGER_PRIORITY: Record<TriggerType, number> = {
+    // P1: Meal logging reminders — direct user action prompt (highest engagement)
+    missed_breakfast: 1,
+    missed_lunch: 1,
+    missed_dinner: 1,
+    // P2: Meal suggestions — proactive value ("here's what to eat")
+    suggest_breakfast: 2,
+    suggest_lunch: 2,
+    suggest_dinner: 2,
+    // P3: Nutritional gap alerts — health insight / educational
+    low_protein_3day: 3,
+    high_fat_2day: 3,
+    calorie_overshoot_3day: 3,
+    // P4: Engagement / Gamification — nice-to-have, lowest impact
+    no_water: 4,
+    streak_milestone: 4,
+    streak_broken: 4,
+};
 
 // ── Timezone Helpers ─────────────────────────────────────────────────────────
 
@@ -180,6 +226,22 @@ async function recordDispatch(
          ON CONFLICT (b2c_customer_id, trigger_type, trigger_date) DO NOTHING`,
         [customerId, triggerType, triggerDate, notificationId]
     );
+}
+
+// ── PRD-32: Daily Dispatch Count (timezone-aware) ────────────────────────────
+
+async function getTodayDispatchCount(
+    customerId: string,
+    todayStr: string
+): Promise<number> {
+    const rows = await executeRaw(
+        `SELECT COUNT(*) AS cnt
+         FROM gold.b2c_notification_dispatch_log
+         WHERE b2c_customer_id = $1
+           AND trigger_date = $2`,
+        [customerId, todayStr]
+    );
+    return parseInt((rows[0] as any)?.cnt ?? "0", 10);
 }
 
 // ── Trigger Functions ────────────────────────────────────────────────────────
@@ -417,12 +479,54 @@ async function checkSuggestLunch(
     return { shouldFire: rows.length === 0, context: { localHour } };
 }
 
-// ── Main Orchestrator ────────────────────────────────────────────────────────
+// ── PRD-32: Dinner Triggers ──────────────────────────────────────────────────
+
+async function checkMissedDinner(
+    customerId: string,
+    todayStr: string,
+    localHour: number
+): Promise<TriggerResult> {
+    // Only fire between 8 PM – 10 PM local
+    if (localHour < 20 || localHour >= 22) return { shouldFire: false, context: {} };
+
+    const rows = await executeRaw(
+        `SELECT 1 FROM gold.meal_log_items mli
+         JOIN gold.meal_logs ml ON ml.id = mli.meal_log_id
+         WHERE ml.b2c_customer_id = $1
+           AND ml.log_date = $2
+           AND mli.meal_type = 'dinner'
+         LIMIT 1`,
+        [customerId, todayStr]
+    );
+    return { shouldFire: rows.length === 0, context: { localHour } };
+}
+
+async function checkSuggestDinner(
+    customerId: string,
+    todayStr: string,
+    localHour: number
+): Promise<TriggerResult> {
+    // Only suggest between 5 PM – 7 PM local (before dinner)
+    if (localHour < 17 || localHour >= 19) return { shouldFire: false, context: {} };
+
+    const rows = await executeRaw(
+        `SELECT 1 FROM gold.meal_log_items mli
+         JOIN gold.meal_logs ml ON ml.id = mli.meal_log_id
+         WHERE ml.b2c_customer_id = $1
+           AND ml.log_date = $2
+           AND mli.meal_type = 'dinner'
+         LIMIT 1`,
+        [customerId, todayStr]
+    );
+    return { shouldFire: rows.length === 0, context: { localHour } };
+}
+
+// ── Main Orchestrator (PRD-32: Cap + Priority) ──────────────────────────────
 
 export async function evaluateAndDispatchNotifications(
     customerId: string,
     clientTimezone?: string
-): Promise<{ evaluated: number; dispatched: number }> {
+): Promise<{ evaluated: number; dispatched: number; capped: boolean }> {
     let evaluated = 0;
     let dispatched = 0;
 
@@ -446,13 +550,24 @@ export async function evaluateAndDispatchNotifications(
     const localHour = getLocalHour(timezone);
     const todayStr = getLocalDateStr(timezone);
 
-    // Define all triggers with their check functions
+    // ── PRD-32: Check daily cap — early exit if user already at limit ────────
+    const todayCount = await getTodayDispatchCount(customerId, todayStr);
+    if (todayCount >= MAX_DAILY_NOTIFICATIONS) {
+        console.log(
+            `[NotificationEngine] Cap reached for ${customerId} (${todayCount}/${MAX_DAILY_NOTIFICATIONS})`
+        );
+        return { evaluated: 0, dispatched: 0, capped: true };
+    }
+    const remaining = MAX_DAILY_NOTIFICATIONS - todayCount;
+
+    // Define all 12 triggers with their check functions
     const triggers: Array<{
         type: TriggerType;
         check: () => Promise<TriggerResult>;
     }> = [
             { type: "missed_breakfast", check: () => checkMissedBreakfast(customerId, todayStr, localHour) },
             { type: "missed_lunch", check: () => checkMissedLunch(customerId, todayStr, localHour) },
+            { type: "missed_dinner", check: () => checkMissedDinner(customerId, todayStr, localHour) },
             { type: "high_fat_2day", check: () => checkHighFat2Day(customerId, todayStr, localHour) },
             { type: "low_protein_3day", check: () => checkLowProtein3Day(customerId, todayStr, localHour) },
             { type: "calorie_overshoot_3day", check: () => checkCalorieOvershoot3Day(customerId, todayStr, localHour) },
@@ -461,25 +576,44 @@ export async function evaluateAndDispatchNotifications(
             { type: "streak_broken", check: () => checkStreakBroken(customerId, localHour) },
             { type: "suggest_breakfast", check: () => checkSuggestBreakfast(customerId, todayStr, localHour) },
             { type: "suggest_lunch", check: () => checkSuggestLunch(customerId, todayStr, localHour) },
+            { type: "suggest_dinner", check: () => checkSuggestDinner(customerId, todayStr, localHour) },
         ];
+
+    // ── PRD-32: Collect eligible triggers ─────────────────────────────────────
+    interface EligibleTrigger {
+        type: TriggerType;
+        result: TriggerResult;
+    }
+    const eligible: EligibleTrigger[] = [];
 
     for (const trigger of triggers) {
         evaluated++;
         try {
-            // Skip if already dispatched today
+            // Skip if already dispatched today (per-type dedup — unchanged)
             if (await alreadyDispatched(customerId, trigger.type, todayStr)) {
                 continue;
             }
 
             const result = await trigger.check();
-            if (!result.shouldFire) continue;
+            if (result.shouldFire) {
+                eligible.push({ type: trigger.type, result });
+            }
+        } catch (err) {
+            console.error(`[NotificationEngine] Error evaluating ${trigger.type}:`, err);
+        }
+    }
 
-            // Use fallback template (RAG-enhanced content is a future enhancement)
-            const template = FALLBACK_TEMPLATES[trigger.type];
+    // ── PRD-32: Sort by priority, dispatch top N ─────────────────────────────
+    eligible.sort((a, b) => TRIGGER_PRIORITY[a.type] - TRIGGER_PRIORITY[b.type]);
+    const toDispatch = eligible.slice(0, remaining);
+
+    for (const { type, result } of toDispatch) {
+        try {
+            const template = FALLBACK_TEMPLATES[type];
 
             // Customize template body for streak milestones
             let body = template.body;
-            if (trigger.type === "streak_milestone" && result.context.milestone) {
+            if (type === "streak_milestone" && result.context.milestone) {
                 body = `You've logged meals for ${result.context.milestone} days in a row! Keep it going! 🔥`;
             }
 
@@ -492,15 +626,19 @@ export async function evaluateAndDispatchNotifications(
                 actionUrl: template.action_url,
             });
 
-            await recordDispatch(customerId, trigger.type, todayStr, notification.id);
+            await recordDispatch(customerId, type, todayStr, notification.id);
             dispatched++;
-            console.log(`[NotificationEngine] Dispatched ${trigger.type} for ${customerId}`);
+            console.log(`[NotificationEngine] Dispatched ${type} for ${customerId}`);
         } catch (err) {
-            console.error(`[NotificationEngine] Error evaluating ${trigger.type}:`, err);
+            console.error(`[NotificationEngine] Error dispatching ${type}:`, err);
         }
     }
 
-    return { evaluated, dispatched };
+    const capped = todayCount + dispatched >= MAX_DAILY_NOTIFICATIONS;
+    console.log(
+        `[NotificationEngine] Done: evaluated=${evaluated} eligible=${eligible.length} dispatched=${dispatched} capped=${capped}`
+    );
+    return { evaluated, dispatched, capped };
 }
 
 // ── Batch Evaluation (for cron) ──────────────────────────────────────────────

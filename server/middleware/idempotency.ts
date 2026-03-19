@@ -11,7 +11,21 @@ type IdempotencyRecord = {
 };
 
 const TTL_MS = Number(process.env.IDEMPOTENCY_TTL_MS ?? 15 * 60 * 1000);
+// PERF-01: Cap store size to prevent unbounded memory growth.
+const MAX_STORE_SIZE = 5_000;
 const store = new Map<string, IdempotencyRecord>();
+
+/** Evict oldest 20% of entries when Map exceeds cap */
+function evictIfNeeded() {
+  if (store.size <= MAX_STORE_SIZE) return;
+  const toDelete = Math.floor(store.size * 0.2);
+  let deleted = 0;
+  for (const key of store.keys()) {
+    if (deleted >= toDelete) break;
+    store.delete(key);
+    deleted++;
+  }
+}
 
 function getRecord(key: string): IdempotencyRecord | undefined {
   const record = store.get(key);
@@ -70,6 +84,7 @@ export async function idempotencyMiddleware(req: Request, res: Response, next: N
         requestHash,
         expiresAt: Date.now() + TTL_MS,
       });
+      evictIfNeeded(); // PERF-01: enforce size cap
     }
 
     res.locals.idempotencyKey = idempotencyKey;

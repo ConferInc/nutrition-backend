@@ -1,7 +1,9 @@
 import { ragChat } from "./ragClient.js";
 import { getMemberPrefs, toRagProfile } from "./memberPrefs.js";
+import { getOrCreateHousehold } from "./household.js";
+import { buildRecommendationContext } from "./contextBuilder.js";
 import { db } from "../config/database.js";
-import { chatSessions } from "../../shared/goldSchema.js";
+import { chatSessions, b2cCustomers } from "../../shared/goldSchema.js";
 import { eq, desc, and } from "drizzle-orm";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -24,6 +26,9 @@ export async function processMessage(
     sessionId?: string,
     memberId?: string
 ): Promise<ChatResponse> {
+    // Resolve household context for RAG personalization
+    const household = await getOrCreateHousehold(customerId);
+
     // Resolve member profile for RAG personalization (household-aware)
     let memberProfile: Record<string, unknown> | undefined;
     const effectiveId = memberId || customerId;
@@ -32,8 +37,32 @@ export async function processMessage(
         memberProfile = toRagProfile(prefs);
     }
 
-    // Try RAG chatbot — pass member context per-message
-    const ragResponse = await ragChat(message, customerId, sessionId ?? null, memberId, memberProfile);
+    // Try RAG chatbot — pass member + household context per-message
+    // Fetch display name for personalized chatbot greetings
+    const custRow = await db
+        .select({ fullName: b2cCustomers.fullName })
+        .from(b2cCustomers)
+        .where(eq(b2cCustomers.id, customerId))
+        .limit(1);
+    const displayName = custRow[0]?.fullName ?? undefined;
+
+    // PRD-33: Build contextual recommendation context for chat
+    const context = await buildRecommendationContext(customerId, {
+        timezone: household.timezone ?? undefined,
+        locationCountry: household.locationCountry,
+        locationState: (household as any).locationState,
+        locationZipCode: (household as any).locationZipCode,
+    });
+
+    const ragResponse = await ragChat(
+        message, customerId, sessionId ?? null,
+        memberId, memberProfile,
+        household.householdType ?? undefined,
+        household.totalMembers ?? undefined,
+        household.id,
+        displayName,
+        context
+    );
 
     if (ragResponse) {
         // Update session in PG

@@ -192,7 +192,7 @@ export interface LLMSwapResponse {
 
 const PLAN_SYSTEM_PROMPT = `You are an expert meal planner and nutritionist. Generate a structured weekly meal plan as JSON.
 
-STRICT RULES:
+STRICT RULES (must NEVER be violated):
 1. Only use recipe IDs from the provided list — never invent recipes
 2. ZERO allergen violations — if ANY family member is allergic to something, exclude ALL recipes containing that allergen
 3. Stay within the budget constraint if provided
@@ -203,6 +203,16 @@ STRICT RULES:
 8. For each meal, estimate the grocery cost in the given currency
 9. ZERO dietary preference violations — if a member follows a diet (Vegan, Vegetarian, etc.), NEVER select recipes containing meat, fish, dairy, eggs, or any forbidden ingredient for that diet. This is as critical as allergen safety.
 10. If a USER REQUEST is provided, prioritize recipes that best fulfill that request while still honoring all safety rules above
+
+ADVISORY GUIDELINES (USDA 2025 Dietary Guidelines — apply ONLY when they do NOT conflict with Rules 1-10):
+These are soft recommendations to improve nutritional balance. User preferences, dietary restrictions, allergens, and custom requests ALWAYS take priority over these guidelines.
+- PROTEIN: Where possible, include a protein source at each meal — poultry, fish, beans, eggs, nuts, tofu
+- DAIRY: Aim for ~3 servings/day IF the user's diet allows dairy (skip for Vegan, lactose-intolerant, dairy-free diets)
+- VEGETABLES: Aim for 2.5-3 cups/day, variety of colors and leafy greens
+- FRUITS: Aim for 1.5-2 cups/day, whole fruits preferred over juice
+- WHOLE GRAINS: Aim for 5-6 oz/day IF the user's diet allows grains (skip for Keto, low-carb, grain-free diets)
+- Aim for <10g added sugar per meal and minimize ultra-processed foods where possible
+- Try to cover at least 3 different food groups per day, adjusted to what the user's diet permits
 
 Return ONLY valid JSON with this exact schema:
 {
@@ -228,6 +238,7 @@ RULES:
 3. Try to maintain similar nutrition profile to the replaced meal
 4. Consider the reason for the swap if provided
 5. Pick something different from the current recipe
+6. (Advisory) Where possible, prefer swaps that maintain food group balance — but never override the user's dietary preferences to do so
 
 Return ONLY valid JSON:
 {

@@ -25,7 +25,9 @@ import {
 } from "./mealPlanLLM.js";
 import { addMealItem } from "./mealLog.js";
 import { resolveCuisineIds } from "./b2cTaxonomy.js";
-import { ragMealCandidates } from "./ragClient.js";
+import { ragMealCandidates, toRagScope } from "./ragClient.js";
+import { getHouseholdCombinedPrefs, toRagProfile } from "./memberPrefs.js";
+import { auditMealPlanAgainstGuidelines, formatAuditWarnings } from "./foodPyramidValidator.js";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -301,7 +303,12 @@ async function fetchRecipeCatalog(params: {
 async function getRecipeCandidates(
   b2cCustomerId: string,
   members: MemberContext[],
-  params: { cuisineIds?: string[]; maxCookTime?: number; excludeIds: string[]; limit: number; memberDiets?: string[] }
+  params: { cuisineIds?: string[]; maxCookTime?: number; excludeIds: string[]; limit: number; memberDiets?: string[] },
+  householdType?: string,
+  totalMembers?: number,
+  householdId?: string,
+  scope?: string,
+  memberProfile?: Record<string, unknown>
 ): Promise<RecipeOption[]> {
   // Try RAG-scored candidates first
   const graphCandidates = await ragMealCandidates({
@@ -319,6 +326,11 @@ async function getRecipeCandidates(
     date_range: { start: new Date().toISOString().slice(0, 10), end: new Date().toISOString().slice(0, 10) },
     meals_per_day: ["breakfast", "lunch", "dinner"],
     limit: params.limit,
+    household_type: householdType,
+    total_members: totalMembers,
+    household_id: householdId,
+    scope,
+    member_profile: memberProfile,
   });
 
   if (graphCandidates && graphCandidates.candidates.length > 0) {
@@ -441,13 +453,18 @@ export async function generateMealPlan(
   // Collect all member diets for candidate filtering
   const allMemberDiets = [...new Set(members.flatMap((m) => m.diets))];
 
+  // Build aggregated member_profile for RAG household-aware retrieval
+  const householdPrefs = await getHouseholdCombinedPrefs(household.id);
+  const aggregatedProfile = toRagProfile(householdPrefs);
+
   let recipeCatalog = await getRecipeCandidates(b2cCustomerId, members, {
     cuisineIds,
     maxCookTime: input.preferences?.maxCookTime,
     excludeIds: allExcluded,
     limit: maxRecipes,
     memberDiets: allMemberDiets,
-  });
+  }, household.householdType ?? undefined, household.totalMembers ?? undefined,
+     household.id, toRagScope(household.householdType), aggregatedProfile);
   let cuisineFallbackApplied = preferredCuisines.length > 0 && cuisineIds.length === 0;
 
   // Soft preference mode: if preferred cuisines produce no matches, fall back.
@@ -457,7 +474,8 @@ export async function generateMealPlan(
       excludeIds: allExcluded,
       limit: maxRecipes,
       memberDiets: allMemberDiets,
-    });
+    }, household.householdType ?? undefined, household.totalMembers ?? undefined,
+       household.id, toRagScope(household.householdType), aggregatedProfile);
     cuisineFallbackApplied = recipeCatalog.length > 0;
   }
 
@@ -610,10 +628,28 @@ export async function generateMealPlan(
     const hydratedItems = await hydrateItems(insertedItems);
     console.log("[MealPlan] Hydration complete");
 
+    // PRD-34: USDA Food Pyramid audit
+    const primaryCalTarget = members[0]?.calorieTarget ?? 2000;
+    const recipeLookup = new Map(
+      recipeCatalog.map((r) => [r.id, { recipeId: r.id, title: r.title, calories: r.calories, proteinG: r.proteinG, carbsG: r.carbsG, fatG: r.fatG, fiberG: 0 }])
+    );
+    const foodGroupAudit = await auditMealPlanAgainstGuidelines(
+      validatedMeals.map((m) => ({ recipeId: m.recipeId, servings: m.servings, date: m.date })),
+      recipeLookup,
+      primaryCalTarget,
+      allMemberDiets
+    );
+    const foodGroupWarnings = formatAuditWarnings(foodGroupAudit);
+    if (foodGroupWarnings.length > 0) {
+      console.warn("[MealPlan] USDA food group warnings:", foodGroupWarnings);
+    }
+
     return {
       plan: { ...plan, totalEstimatedCost: totalCost > 0 ? String(totalCost) : null, totalCalories },
       items: hydratedItems,
       generationTimeMs,
+      foodGroupAudit,
+      foodGroupWarnings,
       summary: (() => {
         let out = llmResult.planSummary;
         if (llmFallbackApplied) {
@@ -621,6 +657,9 @@ export async function generateMealPlan(
         }
         if (cuisineFallbackApplied) {
           out = `${out} Note: preferred cuisines were unavailable, so broader recipes were used.`;
+        }
+        if (foodGroupWarnings.length > 0) {
+          out = `${out} ⚠️ ${foodGroupWarnings.join("; ")}`;
         }
         return out;
       })(),

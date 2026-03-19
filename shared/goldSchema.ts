@@ -24,6 +24,8 @@ export const households = gold.table("households", {
   totalMembers: integer("total_members").default(1),
   timezone: varchar("timezone", { length: 64 }).default("UTC").notNull(),
   locationCountry: varchar("location_country", { length: 100 }),
+  locationState: varchar("location_state", { length: 100 }),
+  locationZipCode: varchar("location_zip_code", { length: 20 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -825,6 +827,24 @@ export type MealLogItem = typeof mealLogItems.$inferSelect;
 export type MealLogItemNutrient = typeof mealLogItemNutrients.$inferSelect;
 export type MealLogStreak = typeof mealLogStreaks.$inferSelect;
 export type MealLogTemplate = typeof mealLogTemplates.$inferSelect;
+// ── PRD-34: USDA 2025 Food Pyramid Reference Tables ─────────────────────────
+
+export const nutritionalGuidelines = gold.table("nutritional_guidelines", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  modelName: varchar("model_name", { length: 50 }).notNull(),
+  foodGroup: varchar("food_group", { length: 100 }).notNull(),
+  dailyTargetMin: numeric("daily_target_min", { precision: 10, scale: 2 }),
+  dailyTargetMax: numeric("daily_target_max", { precision: 10, scale: 2 }),
+  dailyTargetUnit: varchar("daily_target_unit", { length: 20 }).notNull(),
+  caloriePercentage: numeric("calorie_percentage", { precision: 5, scale: 2 }),
+  pyramidPriority: integer("pyramid_priority"),
+  calorieBasis: integer("calorie_basis").default(2000),
+  scalingFactor: numeric("scaling_factor", { precision: 5, scale: 3 }).default("1.0"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export type MealPlan = typeof mealPlans.$inferSelect;
 export type MealPlanItem = typeof mealPlanItems.$inferSelect;
 export type RecipeRating = typeof recipeRatings.$inferSelect;
@@ -837,3 +857,6 @@ export type ChatSession = typeof chatSessions.$inferSelect;
 export type B2cCustomerSettings = typeof b2cCustomerSettings.$inferSelect;
 export type Certification = typeof certifications.$inferSelect;
 export type ProductCertification = typeof productCertifications.$inferSelect;
+export type NutritionalGuideline = typeof nutritionalGuidelines.$inferSelect;
+
+

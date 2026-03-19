@@ -10,6 +10,8 @@ import {
 import { getRecipeAllergenMap, getRecipeNutritionMap, getRecipeIngredients, hydrateRecipesByIds } from "./recipeHydration.js";
 import { ragSearch } from "./ragClient.js";
 import { getMemberPrefs, toRagProfile } from "./memberPrefs.js";
+import { getOrCreateHousehold } from "./household.js";
+import { buildRecommendationContext } from "./contextBuilder.js";
 
 export interface SearchParams {
   q?: string;
@@ -333,6 +335,16 @@ export async function searchRecipesWithRAG(
       customer_id: memberId || b2cCustomerId,
       member_id: memberId,
       member_profile: memberProfile,
+      // PRD-33: Include contextual signals for search
+      ...(b2cCustomerId ? { context: await (async () => {
+        const hh = await getOrCreateHousehold(b2cCustomerId);
+        return buildRecommendationContext(b2cCustomerId, {
+          timezone: hh.timezone ?? undefined,
+          locationCountry: hh.locationCountry,
+          locationState: (hh as any).locationState,
+          locationZipCode: (hh as any).locationZipCode,
+        });
+      })() } : {}),
     });
 
     if (ragResult && ragResult.results.length > 0) {
