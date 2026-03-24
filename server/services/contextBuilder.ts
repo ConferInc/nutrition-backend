@@ -220,7 +220,7 @@ export async function buildRecommendationContext(
     now.toLocaleString("en-US", { timeZone: tz })
   ).getDay();
 
-  return {
+  const context: RecommendationContext = {
     timezone: tz,
     country: household.locationCountry ?? null,
     state: household.locationState ?? null,
@@ -239,4 +239,16 @@ export async function buildRecommendationContext(
     targetSodiumMg: healthTargets?.targetSodiumMg ?? null,
     recentMealIds: recentMeals,
   };
+
+  console.info(JSON.stringify({
+    event: "context_builder_output",
+    mealSlot: context.mealTimeSlot,
+    season: context.season,
+    cuisines: context.cuisinePreferences.slice(0, 3),
+    targetCal: context.targetCalories,
+    recentMeals: context.recentMealIds.length,
+    ts: new Date().toISOString(),
+  }));
+
+  return context;
 }

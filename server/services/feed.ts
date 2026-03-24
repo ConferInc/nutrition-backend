@@ -100,11 +100,27 @@ export async function getPersonalizedFeed(
   b2cCustomerId: string,
   limit: number = 200,
   offset: number = 0,
-  memberId?: string
+  memberId?: string,
+  context?: { mealTimeSlot?: string; cuisinePreferences?: string[]; targetCalories?: number | null }
 ): Promise<FeedResult[]> {
   try {
     const prefs = await getEffectivePrefs(b2cCustomerId, memberId);
     const dislikes = prefs.dislikes.map((d) => d.toLowerCase());
+    const sqlStart = Date.now();
+
+    // Tier 1: Map mealTimeSlot to SQL meal_type
+    const mealTypeMap: Record<string, string> = {
+      morning: "breakfast", afternoon: "lunch",
+      evening: "dinner", late_night: "snack",
+    };
+    const mealTypeFilter = context?.mealTimeSlot
+      ? mealTypeMap[context.mealTimeSlot] ?? null
+      : null;
+
+    // Tier 3: Calorie range (per-meal = daily / 3, ±20%)
+    const targetCalPerMeal = context?.targetCalories
+      ? Math.round(context.targetCalories / 3)
+      : null;
 
     const rows = await executeRaw(
       `
@@ -113,7 +129,8 @@ export async function getPersonalizedFeed(
         c.id as cuisine_id,
         c.code as cuisine_code,
         c.name as cuisine_name,
-        coalesce(p.saved_30d, 0) as saved_30d
+        coalesce(p.saved_30d, 0) as saved_30d,
+        case when ccp.cuisine_id is not null then 1 else 0 end as cuisine_match
       from gold.recipes r
       left join gold.cuisines c on c.id = r.cuisine_id
       left join lateral (
@@ -124,6 +141,16 @@ export async function getPersonalizedFeed(
           and cpi.interaction_type = 'saved'
           and cpi.interaction_timestamp > now() - interval '30 days'
       ) p on true
+      -- Tier 2: Cuisine preference boost (LEFT JOIN — no exclusion)
+      left join gold.b2c_customer_cuisine_preferences ccp
+        on ccp.cuisine_id = r.cuisine_id and ccp.b2c_customer_id = $5
+      -- Tier 3: Calorie lookup (LATERAL — per_serving preferred)
+      left join lateral (
+        select rnp.calories from gold.recipe_nutrition_profiles rnp
+        where rnp.recipe_id = r.id
+        order by case rnp.per_basis when 'per_serving' then 1 else 2 end
+        limit 1
+      ) cal on true
       where (coalesce(cardinality($1::uuid[]),0)=0 or not exists (
         select 1
         from gold.recipe_ingredients ri
@@ -163,7 +190,15 @@ export async function getPersonalizedFeed(
           and cpi.interaction_timestamp > now() - interval '48 hours'
           and cpi.b2c_customer_id = $5
       )
-      order by saved_30d desc nulls last, r.updated_at desc, r.id asc
+      -- Tier 1: Meal-type filter (null = no filter, null meal_type = passthrough)
+      and ($8::text is null or r.meal_type is null or lower(r.meal_type) = lower($8))
+      -- Tier 3: Calorie range filter (null = no filter, null calories = passthrough)
+      and ($9::int is null or cal.calories is null or cal.calories between ($9 * 0.8) and ($9 * 1.2))
+      order by
+        -- Tier 2: Cuisine preference boost (5 points) + popularity
+        (case when ccp.cuisine_id is not null then 5 else 0 end) + coalesce(p.saved_30d, 0)
+        desc nulls last,
+        r.updated_at desc, r.id asc
       limit $6 offset $7
       `,
       [
@@ -174,10 +209,25 @@ export async function getPersonalizedFeed(
         b2cCustomerId,
         limit,
         offset,
+        mealTypeFilter,
+        targetCalPerMeal,
       ]
     );
 
     const ids = rows.map((r: any) => r.id);
+
+    console.info(JSON.stringify({
+      event: "feed_sql_result",
+      count: ids.length,
+      topIds: ids.slice(0, 5),
+      elapsedMs: Date.now() - sqlStart,
+      filters: {
+        diets: prefs.dietIds.length, allergens: prefs.allergenIds.length,
+        conditions: prefs.conditionIds.length, dislikes: dislikes.length,
+      },
+      ts: new Date().toISOString(),
+    }));
+
     const nutritionMap = await getRecipeNutritionMap(ids);
     const allergenMap = await getRecipeAllergenMap(ids);
 
@@ -279,8 +329,27 @@ export async function getPersonalizedFeedWithRAG(
 ): Promise<FeedResult[]> {
   // PRD-17: skip RAG for zero-interaction users (collaborative filtering has no signal)
   const interactions = await getUserInteractionCount(b2cCustomerId);
+  const feedStart = Date.now();
+
+  // Resolve household context early — needed by SQL fallback in all paths
+  const household = await getOrCreateHousehold(b2cCustomerId);
+
+  // PRD-33: Build contextual recommendation context (time, season, cuisine, calories)
+  const context = await buildRecommendationContext(b2cCustomerId, {
+    timezone: household.timezone ?? undefined,
+    locationCountry: household.locationCountry,
+    locationState: (household as any).locationState,
+    locationZipCode: (household as any).locationZipCode,
+  });
+
   if (interactions === 0) {
-    return getPersonalizedFeed(b2cCustomerId, limit, offset, memberId);
+    console.info(JSON.stringify({
+      event: "feed_source_decision", source: "SQL_COLD_START",
+      customerId: b2cCustomerId, memberId: memberId || null,
+      interactionCount: 0, totalElapsedMs: Date.now() - feedStart,
+      ts: new Date().toISOString(),
+    }));
+    return getPersonalizedFeed(b2cCustomerId, limit, offset, memberId, context);
   }
 
   // Resolve effective member prefs and RAG profile
@@ -293,17 +362,6 @@ export async function getPersonalizedFeedWithRAG(
     const memberFullPrefs = await getMemberPrefs(memberId);
     memberProfile = toRagProfile(memberFullPrefs);
   }
-
-  // Resolve household context for RAG personalization
-  const household = await getOrCreateHousehold(b2cCustomerId);
-
-  // PRD-33: Build contextual recommendation context (time, season, cuisine, calories)
-  const context = await buildRecommendationContext(b2cCustomerId, {
-    timezone: household.timezone ?? undefined,
-    locationCountry: household.locationCountry,
-    locationState: (household as any).locationState,
-    locationZipCode: (household as any).locationZipCode,
-  });
 
   // Try graph-powered personalization first
   const graphFeed = await ragFeed(
@@ -331,12 +389,29 @@ export async function getPersonalizedFeedWithRAG(
 
       // Supplement with SQL results if RAG returned fewer than the limit
       if (ragResults.length < limit) {
-        const sqlResults = await getPersonalizedFeed(b2cCustomerId, limit - ragResults.length, 0, memberId);
+        const sqlResults = await getPersonalizedFeed(b2cCustomerId, limit - ragResults.length, 0, memberId, context);
         const ragIdSet = new Set(ragResults.map(r => r.recipe.id));
         const dedupedSql = sqlResults.filter(r => !ragIdSet.has(r.recipe.id));
-        return [...ragResults, ...dedupedSql].slice(0, limit);
+        const combined = [...ragResults, ...dedupedSql].slice(0, limit);
+        console.info(JSON.stringify({
+          event: "feed_source_decision", source: "RAG_PLUS_SQL",
+          customerId: b2cCustomerId, memberId: memberId || null,
+          interactionCount: interactions,
+          ragCount: ragResults.length, sqlSupplement: dedupedSql.length,
+          totalElapsedMs: Date.now() - feedStart,
+          ts: new Date().toISOString(),
+        }));
+        return combined;
       }
 
+      console.info(JSON.stringify({
+        event: "feed_source_decision", source: "RAG",
+        customerId: b2cCustomerId, memberId: memberId || null,
+        interactionCount: interactions,
+        ragCount: ragResults.length,
+        totalElapsedMs: Date.now() - feedStart,
+        ts: new Date().toISOString(),
+      }));
       return ragResults;
     } catch (hydrationErr) {
       console.warn("[RAG] Feed hydration failed (non-UUID IDs?), falling back to SQL:", hydrationErr);
@@ -344,7 +419,15 @@ export async function getPersonalizedFeedWithRAG(
   }
 
   // SQL fallback — existing logic (popularity + recency)
-  return getPersonalizedFeed(b2cCustomerId, limit, offset, memberId);
+  console.info(JSON.stringify({
+    event: "feed_source_decision", source: "SQL_FALLBACK",
+    customerId: b2cCustomerId, memberId: memberId || null,
+    interactionCount: interactions,
+    ragCount: graphFeed?.results?.length ?? 0,
+    totalElapsedMs: Date.now() - feedStart,
+    ts: new Date().toISOString(),
+  }));
+  return getPersonalizedFeed(b2cCustomerId, limit, offset, memberId, context);
 }
 
 export async function getFeedRecommendationsWithRAG(b2cCustomerId: string, memberId?: string): Promise<{

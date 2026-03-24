@@ -38,13 +38,26 @@ export async function processMessage(
     }
 
     // Try RAG chatbot — pass member + household context per-message
-    // Fetch display name for personalized chatbot greetings
-    const custRow = await db
-        .select({ fullName: b2cCustomers.fullName })
-        .from(b2cCustomers)
-        .where(eq(b2cCustomers.id, customerId))
-        .limit(1);
-    const displayName = custRow[0]?.fullName ?? undefined;
+    // Fetch display name: use member name if memberId is set, else primary customer
+    let displayName: string | undefined;
+    if (memberId) {
+        const memberRow = await db
+            .select({ firstName: b2cCustomers.firstName, fullName: b2cCustomers.fullName })
+            .from(b2cCustomers)
+            .where(eq(b2cCustomers.id, memberId))
+            .limit(1);
+        displayName = memberRow[0]?.firstName
+            || memberRow[0]?.fullName?.split(" ")[0]
+            || undefined;
+    }
+    if (!displayName) {
+        const custRow = await db
+            .select({ fullName: b2cCustomers.fullName })
+            .from(b2cCustomers)
+            .where(eq(b2cCustomers.id, customerId))
+            .limit(1);
+        displayName = custRow[0]?.fullName ?? undefined;
+    }
 
     // PRD-33: Build contextual recommendation context for chat
     const context = await buildRecommendationContext(customerId, {
