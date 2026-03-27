@@ -432,9 +432,9 @@ export async function generateMealPlan(
       diets: profile?.diets.map((d) => d.code) ?? [],
       conditions: profile?.conditions.map((c) => c.code) ?? [],
       calorieTarget: profile?.targetCalories ?? null,
-      proteinTargetG: profile?.targetProteinG ? n(profile.targetProteinG) : null,
-      carbsTargetG: profile?.targetCarbsG ? n(profile.targetCarbsG) : null,
-      fatTargetG: profile?.targetFatG ? n(profile.targetFatG) : null,
+      proteinTargetG: profile?.targetProteinG != null ? n(profile.targetProteinG) : null,
+      carbsTargetG: profile?.targetCarbsG != null ? n(profile.targetCarbsG) : null,
+      fatTargetG: profile?.targetFatG != null ? n(profile.targetFatG) : null,
     });
   }
 
@@ -875,9 +875,9 @@ export async function swapMeal(
       diets: profile?.diets.map((d) => d.code) ?? [],
       conditions: profile?.conditions.map((c) => c.code) ?? [],
       calorieTarget: profile?.targetCalories ?? null,
-      proteinTargetG: profile?.targetProteinG ? n(profile.targetProteinG) : null,
-      carbsTargetG: profile?.targetCarbsG ? n(profile.targetCarbsG) : null,
-      fatTargetG: profile?.targetFatG ? n(profile.targetFatG) : null,
+      proteinTargetG: profile?.targetProteinG != null ? n(profile.targetProteinG) : null,
+      carbsTargetG: profile?.targetCarbsG != null ? n(profile.targetCarbsG) : null,
+      fatTargetG: profile?.targetFatG != null ? n(profile.targetFatG) : null,
     });
   }
 
@@ -1059,10 +1059,11 @@ export async function addItemToPlan(
   b2cCustomerId: string,
   input: { recipeId: string; mealDate: string; mealType: string; servings?: number; replaceItemId?: string }
 ) {
+  const household = await getOrCreateHousehold(b2cCustomerId);
   const planRows = await db
     .select()
     .from(mealPlans)
-    .where(eq(mealPlans.id, planId))
+    .where(and(eq(mealPlans.id, planId), eq(mealPlans.householdId, household.id)))
     .limit(1);
 
   if (!planRows[0]) {

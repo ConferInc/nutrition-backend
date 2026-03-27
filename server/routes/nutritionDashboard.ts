@@ -38,7 +38,7 @@ const healthMetricsQuerySchema = z.object({
 });
 
 const monthlyQuerySchema = z.object({
-  month: z.string().regex(/^\d{4}-\d{2}$/),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
   memberId: z.string().uuid().optional(),
 });
 
