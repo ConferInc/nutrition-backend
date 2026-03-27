@@ -65,9 +65,14 @@ function shouldAllowRequest(): boolean {
     if (circuitState === "OPEN") {
         // Check cooldown
         if (lastFailureAt && Date.now() - lastFailureAt >= COOLDOWN_MS) {
+            const prev = circuitState;
             circuitState = "HALF_OPEN";
             halfOpenProbeInFlight = false;
-            console.log("[RAG] Circuit → HALF_OPEN (cooldown expired, allowing test request)");
+            console.info(JSON.stringify({
+                event: "circuit_transition", from: prev, to: "HALF_OPEN",
+                reason: "cooldown_expired", consecutiveFailures,
+                ts: new Date().toISOString(),
+            }));
             // fall through to HALF_OPEN check below
         } else {
             return false;
@@ -85,8 +90,13 @@ function shouldAllowRequest(): boolean {
 }
 
 function recordSuccess(): void {
+    const prevState = circuitState;
     if (circuitState !== "CLOSED") {
-        console.log("[RAG] Circuit → CLOSED (request succeeded)");
+        console.info(JSON.stringify({
+            event: "circuit_transition", from: prevState, to: "CLOSED",
+            reason: "request_succeeded", consecutiveFailures: 0,
+            ts: new Date().toISOString(),
+        }));
     }
     circuitState = "CLOSED";
     consecutiveFailures = 0;
@@ -99,10 +109,13 @@ function recordFailure(): void {
     halfOpenProbeInFlight = false;
 
     if (consecutiveFailures >= FAILURE_THRESHOLD && circuitState !== "OPEN") {
+        const prevState = circuitState;
         circuitState = "OPEN";
-        console.log(
-            `[RAG] Circuit → OPEN (${consecutiveFailures} consecutive failures, cooldown ${COOLDOWN_MS / 1000}s)`
-        );
+        console.info(JSON.stringify({
+            event: "circuit_transition", from: prevState, to: "OPEN",
+            consecutiveFailures, cooldownMs: COOLDOWN_MS,
+            ts: new Date().toISOString(),
+        }));
     }
 }
 
@@ -116,12 +129,21 @@ async function callRag<T>(
 
     // Gate 1: Feature flag
     if (!isFeatureEnabled(feature)) {
+        console.info(JSON.stringify({
+            event: "rag_skip", feature, reason: "FEATURE_DISABLED",
+            flag: config.flag, ts: new Date().toISOString(),
+        }));
         return null;
     }
 
     // Gate 2: Circuit breaker
     if (!shouldAllowRequest()) {
-        console.log(`[RAG] ${feature} → SKIPPED (circuit OPEN)`);
+        console.info(JSON.stringify({
+            event: "rag_skip", feature, reason: "CIRCUIT_OPEN",
+            circuitState, consecutiveFailures,
+            cooldownRemainingMs: lastFailureAt ? Math.max(0, COOLDOWN_MS - (Date.now() - lastFailureAt)) : 0,
+            ts: new Date().toISOString(),
+        }));
         return null;
     }
 
@@ -154,24 +176,48 @@ async function callRag<T>(
         const elapsed = Date.now() - startTime;
 
         if (!response.ok) {
-            console.error(`[RAG] ${feature} → ${response.status} (${elapsed}ms) → SQL fallback`);
+            console.info(JSON.stringify({
+                event: "rag_call", feature, endpoint: config.endpoint,
+                status: response.status, ok: false,
+                elapsedMs: elapsed, timeoutMs: config.timeout,
+                circuitState, consecutiveFailures,
+                ts: new Date().toISOString(),
+            }));
             recordFailure();
             return null;
         }
 
         const data = (await response.json()) as T;
-        console.log(`[RAG] ${feature} → 200 (${elapsed}ms)`);
+        // Count results from whichever array shape the response uses
+        const d = data as any;
+        const resultCount = Array.isArray(d?.results) ? d.results.length
+            : Array.isArray(d?.candidates) ? d.candidates.length
+            : Array.isArray(d?.products) ? d.products.length
+            : Array.isArray(d?.alternatives) ? d.alternatives.length
+            : Array.isArray(d?.substitutions) ? d.substitutions.length
+            : 1;
+        console.info(JSON.stringify({
+            event: "rag_call", feature, endpoint: config.endpoint,
+            status: 200, ok: true,
+            elapsedMs: elapsed, timeoutMs: config.timeout, resultCount,
+            circuitState, consecutiveFailures,
+            ts: new Date().toISOString(),
+        }));
         recordSuccess();
         return data;
     } catch (error: unknown) {
         clearTimeout(timeoutId);
         const elapsed = Date.now() - startTime;
 
-        if (error instanceof Error && error.name === "AbortError") {
-            console.error(`[RAG] ${feature} → TIMEOUT (${elapsed}ms) → SQL fallback`);
-        } else {
-            console.error(`[RAG] ${feature} → ERROR (${elapsed}ms) → SQL fallback`, error);
-        }
+        const errStatus = (error instanceof Error && error.name === "AbortError") ? "TIMEOUT" : "ERROR";
+        console.info(JSON.stringify({
+            event: "rag_call", feature, endpoint: config.endpoint,
+            status: errStatus, ok: false,
+            error: (error instanceof Error) ? error.message : String(error),
+            elapsedMs: elapsed, timeoutMs: config.timeout,
+            circuitState, consecutiveFailures,
+            ts: new Date().toISOString(),
+        }));
 
         recordFailure();
         return null;
