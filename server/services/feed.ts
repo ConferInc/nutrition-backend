@@ -103,6 +103,8 @@ export async function getPersonalizedFeed(
   memberId?: string,
   context?: { mealTimeSlot?: string; cuisinePreferences?: string[]; targetCalories?: number | null }
 ): Promise<FeedResult[]> {
+  // Use member's ID for per-user joins (cuisine prefs, viewed-exclusion) when in member mode
+  const effectiveUserId = memberId || b2cCustomerId;
   try {
     const prefs = await getEffectivePrefs(b2cCustomerId, memberId);
     const dislikes = prefs.dislikes.map((d) => d.toLowerCase());
@@ -143,7 +145,7 @@ export async function getPersonalizedFeed(
       ) p on true
       -- Tier 2: Cuisine preference boost (LEFT JOIN — no exclusion)
       left join gold.b2c_customer_cuisine_preferences ccp
-        on ccp.cuisine_id = r.cuisine_id and ccp.b2c_customer_id = $5
+        on ccp.cuisine_id = r.cuisine_id and ccp.b2c_customer_id = $5  -- effectiveUserId (member or primary)
       -- Tier 3: Calorie lookup (LATERAL — per_serving preferred)
       left join lateral (
         select rnp.calories from gold.recipe_nutrition_profiles rnp
@@ -188,7 +190,7 @@ export async function getPersonalizedFeed(
           and cpi.entity_type = 'recipe'
           and (cpi.interaction_type = 'viewed' or cpi.metadata->>'event' = 'viewed')
           and cpi.interaction_timestamp > now() - interval '48 hours'
-          and cpi.b2c_customer_id = $5
+          and cpi.b2c_customer_id = $5  -- effectiveUserId
       )
       -- Tier 1: Meal-type filter (null = no filter, null meal_type = passthrough)
       and ($8::text is null or r.meal_type is null or lower(r.meal_type) = lower($8))
@@ -206,7 +208,7 @@ export async function getPersonalizedFeed(
         prefs.allergenIds,
         prefs.conditionIds,
         dislikes,
-        b2cCustomerId,
+        effectiveUserId,
         limit,
         offset,
         mealTypeFilter,

@@ -46,11 +46,14 @@ export async function processMessage(
             .from(b2cCustomers)
             .where(eq(b2cCustomers.id, memberId))
             .limit(1);
-        displayName = memberRow[0]?.firstName
-            || memberRow[0]?.fullName?.split(" ")[0]
-            || undefined;
+        if (memberRow[0]) {
+            displayName = memberRow[0].firstName
+                || memberRow[0].fullName?.split(" ")[0]
+                || undefined;
+        }
+        // If memberId was provided but row not found, skip — don't misattribute primary customer's name
     }
-    if (!displayName) {
+    if (!displayName && !memberId) {
         const custRow = await db
             .select({ fullName: b2cCustomers.fullName })
             .from(b2cCustomers)
