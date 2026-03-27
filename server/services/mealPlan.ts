@@ -432,9 +432,9 @@ export async function generateMealPlan(
       diets: profile?.diets.map((d) => d.code) ?? [],
       conditions: profile?.conditions.map((c) => c.code) ?? [],
       calorieTarget: profile?.targetCalories ?? null,
-      proteinTargetG: profile?.targetProteinG ? n(profile.targetProteinG) : null,
-      carbsTargetG: profile?.targetCarbsG ? n(profile.targetCarbsG) : null,
-      fatTargetG: profile?.targetFatG ? n(profile.targetFatG) : null,
+      proteinTargetG: profile?.targetProteinG != null ? n(profile.targetProteinG) : null,
+      carbsTargetG: profile?.targetCarbsG != null ? n(profile.targetCarbsG) : null,
+      fatTargetG: profile?.targetFatG != null ? n(profile.targetFatG) : null,
     });
   }
 
@@ -560,7 +560,9 @@ export async function generateMealPlan(
 
   try {
     console.log("[MealPlan] Inserting meal plan into DB…");
-    const planRows = await db
+    // B2C-038: Wrap all writes in a transaction to prevent orphaned plan rows
+    const { plan, insertedItems } = await db.transaction(async (tx) => {
+    const planRows = await tx
       .insert(mealPlans)
       .values({
         householdId: household.id,
@@ -613,10 +615,10 @@ export async function generateMealPlan(
     });
 
     console.log("[MealPlan] Inserting", itemValues.length, "meal items…");
-    const insertedItems = await db.insert(mealPlanItems).values(itemValues).returning();
+    const insertedItems = await tx.insert(mealPlanItems).values(itemValues).returning();
     console.log("[MealPlan] Items inserted:", insertedItems.length);
 
-    await db
+    await tx
       .update(mealPlans)
       .set({
         totalEstimatedCost: totalCost > 0 ? String(totalCost) : null,
@@ -624,6 +626,9 @@ export async function generateMealPlan(
       })
       .where(eq(mealPlans.id, plan.id));
     console.log("[MealPlan] Plan updated with totals");
+
+    return { plan, insertedItems };
+    }); // end db.transaction()
 
     const hydratedItems = await hydrateItems(insertedItems);
     console.log("[MealPlan] Hydration complete");
@@ -875,9 +880,9 @@ export async function swapMeal(
       diets: profile?.diets.map((d) => d.code) ?? [],
       conditions: profile?.conditions.map((c) => c.code) ?? [],
       calorieTarget: profile?.targetCalories ?? null,
-      proteinTargetG: profile?.targetProteinG ? n(profile.targetProteinG) : null,
-      carbsTargetG: profile?.targetCarbsG ? n(profile.targetCarbsG) : null,
-      fatTargetG: profile?.targetFatG ? n(profile.targetFatG) : null,
+      proteinTargetG: profile?.targetProteinG != null ? n(profile.targetProteinG) : null,
+      carbsTargetG: profile?.targetCarbsG != null ? n(profile.targetCarbsG) : null,
+      fatTargetG: profile?.targetFatG != null ? n(profile.targetFatG) : null,
     });
   }
 
@@ -1059,10 +1064,11 @@ export async function addItemToPlan(
   b2cCustomerId: string,
   input: { recipeId: string; mealDate: string; mealType: string; servings?: number; replaceItemId?: string }
 ) {
+  const household = await getOrCreateHousehold(b2cCustomerId);
   const planRows = await db
     .select()
     .from(mealPlans)
-    .where(eq(mealPlans.id, planId))
+    .where(and(eq(mealPlans.id, planId), eq(mealPlans.householdId, household.id)))
     .limit(1);
 
   if (!planRows[0]) {

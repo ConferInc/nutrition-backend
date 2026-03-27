@@ -12,6 +12,7 @@ import {
     markAllAsRead,
 } from "../services/notifications.js";
 import { evaluateAndDispatchNotifications } from "../services/notificationEngine.js";
+import { trackFeature } from "../services/featureTracking.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -20,8 +21,25 @@ function b2cId(req: Request): string {
     return requireB2cCustomerIdFromReq(req);
 }
 
-// ── GET /api/v1/notifications ───────────────────────────────────────────────
-// Fetch paginated notifications with optional type filter
+/**
+ * @openapi
+ * /notifications:
+ *   get:
+ *     tags: [Notifications]
+ *     summary: List notifications
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         schema: { type: string, enum: [meal, nutrition, grocery, budget, family, system] }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20, maximum: 100 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *     responses:
+ *       200: { description: Paginated notifications }
+ */
 router.get(
     "/",
     rateLimitMiddleware,
@@ -38,7 +56,6 @@ router.get(
                 0
             );
 
-            // Validate type if provided
             const validTypes = [
                 "meal",
                 "nutrition",
@@ -68,7 +85,22 @@ router.get(
     }
 );
 
-// ── GET /api/v1/notifications/unread-count ──────────────────────────────────
+/**
+ * @openapi
+ * /notifications/unread-count:
+ *   get:
+ *     tags: [Notifications]
+ *     summary: Get unread notification count
+ *     responses:
+ *       200:
+ *         description: Unread count
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 count: { type: integer }
+ */
 router.get(
     "/unread-count",
     rateLimitMiddleware,
@@ -83,8 +115,21 @@ router.get(
     }
 );
 
-// ── PATCH /api/v1/notifications/:id/read ────────────────────────────────────
-// Mark a single notification as read
+/**
+ * @openapi
+ * /notifications/{id}/read:
+ *   patch:
+ *     tags: [Notifications]
+ *     summary: Mark a notification as read
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Notification marked as read }
+ *       404: { description: Notification not found }
+ */
 router.patch(
     "/:id/read",
     rateLimitMiddleware,
@@ -93,7 +138,6 @@ router.patch(
             const customerId = b2cId(req);
             const { id } = req.params;
 
-            // Validate UUID format
             z.string().uuid().parse(id);
 
             const notification = await markAsRead(id, customerId);
@@ -101,14 +145,29 @@ router.patch(
                 throw new AppError(404, "Not Found", "Notification not found");
             }
             res.json({ notification });
+            trackFeature(customerId, "notifications", "read");
         } catch (err) {
             next(err);
         }
     }
 );
 
-// ── POST /api/v1/notifications/read-all ─────────────────────────────────────
-// Mark all notifications as read for the current user
+/**
+ * @openapi
+ * /notifications/read-all:
+ *   post:
+ *     tags: [Notifications]
+ *     summary: Mark all notifications as read
+ *     responses:
+ *       200:
+ *         description: All marked as read
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 markedCount: { type: integer }
+ */
 router.post(
     "/read-all",
     rateLimitMiddleware,
@@ -123,8 +182,20 @@ router.post(
     }
 );
 
-// ── POST /api/v1/notifications/evaluate ─────────────────────────────────────
-// Login-triggered: evaluate all notification triggers for the current user
+/**
+ * @openapi
+ * /notifications/evaluate:
+ *   post:
+ *     tags: [Notifications]
+ *     summary: Evaluate and dispatch notifications for current user
+ *     parameters:
+ *       - in: header
+ *         name: x-timezone
+ *         schema: { type: string }
+ *         description: Client timezone (e.g. America/New_York)
+ *     responses:
+ *       200: { description: Evaluation results }
+ */
 router.post(
     "/evaluate",
     rateLimitMiddleware,
@@ -133,6 +204,7 @@ router.post(
             const customerId = b2cId(req);
             const clientTimezone = req.headers["x-timezone"] as string | undefined;
             const result = await evaluateAndDispatchNotifications(customerId, clientTimezone);
+            trackFeature(customerId, "notifications", "evaluate");
             res.json(result);
         } catch (err) {
             next(err);

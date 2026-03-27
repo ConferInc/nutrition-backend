@@ -5,6 +5,7 @@ import {
   varchar,
   text,
   integer,
+  smallint,
   numeric,
   boolean,
   timestamp,
@@ -665,6 +666,8 @@ export const shoppingLists = gold.table("shopping_lists", {
   vendorId: uuid("vendor_id"),
   totalEstimatedCost: numeric("total_estimated_cost", { precision: 10, scale: 2 }),
   status: varchar("status", { length: 20 }).default("draft"),
+  lastActiveAt: timestamp("last_active_at"),       // B2C-022
+  completedAt: timestamp("completed_at"),           // B2C-023
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -859,4 +862,88 @@ export type Certification = typeof certifications.$inferSelect;
 export type ProductCertification = typeof productCertifications.$inferSelect;
 export type NutritionalGuideline = typeof nutritionalGuidelines.$inferSelect;
 
+// ── B2C-036: Previously missing tables (used via raw SQL) ──────────────────
 
+export const b2cNotifications = gold.table("b2c_notifications", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: uuid("customer_id").notNull(),
+  type: varchar("type", { length: 30 }).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  body: text("body"),
+  icon: varchar("icon", { length: 100 }),
+  actionUrl: varchar("action_url", { length: 500 }),
+  isRead: boolean("is_read").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  readAt: timestamp("read_at", { withTimezone: true }),
+});
+
+export const b2cNotificationDispatchLog = gold.table("b2c_notification_dispatch_log", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  b2cCustomerId: uuid("b2c_customer_id").notNull(),
+  triggerType: varchar("trigger_type", { length: 50 }).notNull(),
+  triggerDate: date("trigger_date").notNull(),
+  dispatchedAt: timestamp("dispatched_at", { withTimezone: true }).defaultNow().notNull(),
+  notificationId: uuid("notification_id"),
+});
+
+export const productIngredients = gold.table("product_ingredients", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  productId: uuid("product_id").notNull(),
+  ingredientId: uuid("ingredient_id").notNull(),
+  quantity: numeric("quantity"),
+  unit: varchar("unit", { length: 50 }),
+  quantityNormalizedG: numeric("quantity_normalized_g"),
+  ingredientOrder: integer("ingredient_order"),
+  isPrimary: boolean("is_primary").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type B2cNotification = typeof b2cNotifications.$inferSelect;
+export type B2cNotificationDispatchLog = typeof b2cNotificationDispatchLog.$inferSelect;
+export type ProductIngredient = typeof productIngredients.$inferSelect;
+
+// ── B2C-020: Session event tracking ────────────────────────────────────────
+
+export const b2cSessionEvents = gold.table("b2c_session_events", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  b2cCustomerId: uuid("b2c_customer_id").notNull(),
+  eventType: varchar("event_type", { length: 30 }).notNull(),
+  deviceType: varchar("device_type", { length: 30 }),
+  browser: varchar("browser", { length: 100 }),
+  os: varchar("os", { length: 100 }),
+  ipAddress: varchar("ip_address", { length: 50 }),
+  userAgent: text("user_agent"),
+  sessionId: varchar("session_id", { length: 100 }),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type B2cSessionEvent = typeof b2cSessionEvents.$inferSelect;
+
+// ── B2C-021: Feature usage analytics ───────────────────────────────────────
+
+export const b2cFeatureEvents = gold.table("b2c_feature_events", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  b2cCustomerId: uuid("b2c_customer_id").notNull(),
+  featureName: varchar("feature_name", { length: 50 }).notNull(),
+  action: varchar("action", { length: 30 }).notNull(),
+  metadata: jsonb("metadata").default({}),
+  durationMs: integer("duration_ms"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type B2cFeatureEvent = typeof b2cFeatureEvents.$inferSelect;
+
+// ── B2C-026: NPS survey responses ──────────────────────────────────────────
+
+export const b2cNpsResponses = gold.table("b2c_nps_responses", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  b2cCustomerId: uuid("b2c_customer_id").notNull(),
+  score: smallint("score"),                             // 0-10, NULL if dismissed
+  feedbackText: text("feedback_text"),
+  triggerType: varchar("trigger_type", { length: 50 }).notNull().default("session_count"),
+  dismissed: boolean("dismissed").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export type B2cNpsResponse = typeof b2cNpsResponses.$inferSelect;

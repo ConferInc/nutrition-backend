@@ -37,16 +37,18 @@ export const migrationClient = postgres(env.DATABASE_URL, {
 queryClient`SET application_name = 'nutrition-app-api'`.catch(() => { });
 migrationClient.end({ timeout: 5 }).catch(() => { });
 
-// Function to set current user for RLS (session-level)
+// Function to set current user for RLS (transaction-scope)
+// SECURITY (B2C-034): third arg MUST be `true` (transaction-scope) to prevent
+// user context leaking across pooled connection reuse.
 export async function setCurrentUser(userId: string) {
   try {
     await executeRaw(
-      `SELECT set_config('app.current_user_id', $1, false)`,
+      `SELECT set_config('app.current_user_id', $1, true)`,
       [userId]
     );
   } catch (error) {
-    // If the GUC isn't defined, continue silently (dev-friendly)
-    console.log(`[DB] RLS user context not available: ${error}`);
+    // If the GUC isn't defined, log warning but continue (dev-friendly)
+    console.warn(`[DB] RLS user context not available: ${error}`);
   }
 }
 

@@ -1,130 +1,134 @@
-// server/routes/scan.ts
-// API routes for barcode scanning: product lookup, scan history
-
 import { Router } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rateLimit.js";
 import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 import {
-    lookupProductWithAlternatives,
-    saveScanHistory,
-    getScanHistory,
+  lookupProductByBarcode,
+  saveScanHistory,
+  getScanHistory,
 } from "../services/scan.js";
+import { trackFeature } from "../services/featureTracking.js";
 
 const router = Router();
+router.use(authMiddleware);
 
-function b2cCustomerId(req: any): string {
-    return requireB2cCustomerIdFromReq(req);
+function b2cId(req: Request): string {
+  return requireB2cCustomerIdFromReq(req);
 }
 
-// ─── Validation Schemas ─────────────────────────────────────────────────────
-
 const lookupSchema = z.object({
-    barcode: z
-        .string()
-        .min(4)
-        .max(50)
-        .regex(/^[0-9A-Za-z\-]+$/, "Invalid barcode format"),
-    memberId: z.string().uuid().optional(),
+  barcode: z.string().min(1).max(50),
 });
 
 const saveHistorySchema = z.object({
-    barcode: z
-        .string()
-        .min(4)
-        .max(50)
-        .regex(/^[0-9A-Za-z\-]+$/, "Invalid barcode format"),
-    productId: z.string().uuid().optional(),
-    barcodeFormat: z
-        .enum([
-            "EAN_13",
-            "EAN_8",
-            "UPC_A",
-            "UPC_E",
-            "CODE_128",
-            "CODE_39",
-            "QR_CODE",
-            "Manual",
-        ])
-        .optional(),
-    scanSource: z.enum(["camera", "image", "manual"]).optional(),
+  barcode: z.string().min(1).max(50),
+  productName: z.string().max(500).optional(),
+  productData: z.record(z.any()).optional(),
 });
 
-// ─── POST /api/v1/scan/lookup ───────────────────────────────────────────────
-// Look up a product by barcode with personalized warnings
+/**
+ * @openapi
+ * /scan/lookup:
+ *   post:
+ *     tags: [Scan]
+ *     summary: Look up a product by barcode
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [barcode]
+ *             properties:
+ *               barcode: { type: string, minLength: 1, maxLength: 50 }
+ *     responses:
+ *       200: { description: Product data }
+ *       404: { description: Product not found }
+ */
 router.post(
-    "/lookup",
-    authMiddleware,
-    rateLimitMiddleware,
-    async (req, res, next) => {
-        try {
-            const id = b2cCustomerId(req);
-            const body = lookupSchema.parse(req.body ?? {});
-
-            const result = await lookupProductWithAlternatives(
-                body.barcode,
-                id,
-                body.memberId
-            );
-
-            res.json(result);
-        } catch (err) {
-            next(err);
-        }
+  "/lookup",
+  rateLimitMiddleware,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const customerId = b2cId(req);
+      const { barcode } = lookupSchema.parse(req.body);
+      const result = await lookupProductByBarcode(barcode);
+      trackFeature(customerId, "scan", "lookup");
+      res.json(result);
+    } catch (err) {
+      next(err);
     }
+  }
 );
 
-// ─── POST /api/v1/scan/history ──────────────────────────────────────────────
-// Save a scan event to history
+/**
+ * @openapi
+ * /scan/history:
+ *   post:
+ *     tags: [Scan]
+ *     summary: Save a barcode scan to history
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [barcode]
+ *             properties:
+ *               barcode: { type: string }
+ *               productName: { type: string }
+ *               productData: { type: object }
+ *     responses:
+ *       201: { description: Scan saved }
+ */
 router.post(
-    "/history",
-    authMiddleware,
-    rateLimitMiddleware,
-    async (req, res, next) => {
-        try {
-            const id = b2cCustomerId(req);
-            const body = saveHistorySchema.parse(req.body ?? {});
-            const householdId = (req as any).user?.profile?.householdId ?? undefined;
-
-            const scanId = await saveScanHistory({
-                b2cCustomerId: id,
-                householdId,
-                productId: body.productId,
-                barcode: body.barcode,
-                barcodeFormat: body.barcodeFormat,
-                scanSource: body.scanSource,
-            });
-
-            res.status(201).json({ id: scanId, success: true });
-        } catch (err) {
-            next(err);
-        }
+  "/history",
+  rateLimitMiddleware,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const customerId = b2cId(req);
+      const parsed = saveHistorySchema.parse(req.body);
+      const result = await saveScanHistory(customerId, parsed);
+      trackFeature(customerId, "scan", "save_history");
+      res.status(201).json(result);
+    } catch (err) {
+      next(err);
     }
+  }
 );
 
-// ─── GET /api/v1/scan/history ───────────────────────────────────────────────
-// Get paginated scan history for the current user
+/**
+ * @openapi
+ * /scan/history:
+ *   get:
+ *     tags: [Scan]
+ *     summary: Get scan history
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *     responses:
+ *       200: { description: Paginated scan history }
+ */
 router.get(
-    "/history",
-    authMiddleware,
-    rateLimitMiddleware,
-    async (req, res, next) => {
-        try {
-            const id = b2cCustomerId(req);
-            const limit = req.query.limit
-                ? parseInt(req.query.limit as string, 10)
-                : 20;
-            const offset = req.query.offset
-                ? parseInt(req.query.offset as string, 10)
-                : 0;
-
-            const history = await getScanHistory(id, limit, offset);
-            res.json(history);
-        } catch (err) {
-            next(err);
-        }
+  "/history",
+  rateLimitMiddleware,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const customerId = b2cId(req);
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
+      const history = await getScanHistory(customerId, limit, offset);
+      res.json(history);
+    } catch (err) {
+      next(err);
     }
+  }
 );
 
 export default router;

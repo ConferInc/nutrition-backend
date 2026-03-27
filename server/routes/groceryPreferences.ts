@@ -37,7 +37,15 @@ const updatePreferencesSchema = z.object({
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
-// GET /api/v1/grocery-preferences/certifications
+/**
+ * @openapi
+ * /grocery-preferences/certifications:
+ *   get:
+ *     tags: [Grocery Preferences]
+ *     summary: List all available certifications
+ *     responses:
+ *       200: { description: List of certifications }
+ */
 router.get(
   "/certifications",
   rateLimitMiddleware,
@@ -51,7 +59,15 @@ router.get(
   }
 );
 
-// GET /api/v1/grocery-preferences
+/**
+ * @openapi
+ * /grocery-preferences:
+ *   get:
+ *     tags: [Grocery Preferences]
+ *     summary: Get household grocery preferences
+ *     responses:
+ *       200: { description: Current grocery preferences }
+ */
 router.get(
   "/",
   rateLimitMiddleware,
@@ -67,7 +83,26 @@ router.get(
   }
 );
 
-// PUT /api/v1/grocery-preferences
+/**
+ * @openapi
+ * /grocery-preferences:
+ *   put:
+ *     tags: [Grocery Preferences]
+ *     summary: Update household grocery preferences
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               certificationIds: { type: array, items: { type: string, format: uuid } }
+ *               brands: { type: array, items: { type: object, properties: { name: { type: string }, priority: { type: integer } } } }
+ *               mealsPerDay: { type: integer, minimum: 1, maximum: 10 }
+ *               daysPerWeek: { type: integer, minimum: 1, maximum: 7 }
+ *     responses:
+ *       200: { description: Updated preferences }
+ */
 router.put(
   "/",
   rateLimitMiddleware,
@@ -84,7 +119,20 @@ router.put(
   }
 );
 
-// GET /api/v1/grocery-preferences/brands?q=
+/**
+ * @openapi
+ * /grocery-preferences/brands:
+ *   get:
+ *     tags: [Grocery Preferences]
+ *     summary: Search brands by name
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string, minLength: 2 }
+ *     responses:
+ *       200: { description: Matching brands }
+ */
 router.get(
   "/brands",
   rateLimitMiddleware,

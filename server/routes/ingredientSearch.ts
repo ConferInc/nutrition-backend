@@ -5,8 +5,22 @@ import { searchIngredients } from "../services/ingredientSearch.js";
 const router = Router();
 
 /**
- * GET /api/v1/ingredients/search?q=chicken&limit=10
- * Returns matching ingredients with inline nutrition data (per 100g).
+ * @openapi
+ * /ingredients/search:
+ *   get:
+ *     tags: [Ingredient Search]
+ *     summary: Search ingredients with inline nutrition
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string, minLength: 2 }
+ *         description: Search term (min 2 chars)
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10, maximum: 20 }
+ *     responses:
+ *       200: { description: Matching ingredients with nutrition per 100g }
  */
 router.get("/search", authMiddleware, async (req, res, next) => {
     try {

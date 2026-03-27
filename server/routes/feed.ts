@@ -6,8 +6,26 @@ import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 
 const router = Router();
 
-// PRD-11: Graph-enhanced feed (RAG → SQL fallback)
-// Household: pass ?memberId=xxx to personalize for a specific household member
+/**
+ * @openapi
+ * /feed:
+ *   get:
+ *     tags: [Feed]
+ *     summary: Get personalized recipe feed
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 200 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *         description: Personalize for a specific household member
+ *     responses:
+ *       200: { description: Personalized recipe feed }
+ */
 router.get("/", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 200;
@@ -22,6 +40,19 @@ router.get("/", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   }
 });
 
+/**
+ * @openapi
+ * /feed/recommendations:
+ *   get:
+ *     tags: [Feed]
+ *     summary: Get AI-powered recipe recommendations
+ *     parameters:
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Recommended recipes }
+ */
 router.get("/recommendations", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const b2cCustomerId = requireB2cCustomerIdFromReq(req);
@@ -34,4 +65,3 @@ router.get("/recommendations", authMiddleware, rateLimitMiddleware, async (req, 
 });
 
 export default router;
-

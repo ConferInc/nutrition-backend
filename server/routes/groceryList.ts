@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.js";
@@ -14,6 +14,8 @@ import {
   updateGroceryListStatus,
   updateGroceryListItem,
 } from "../services/groceryList.js";
+import { trackFeature } from "../services/featureTracking.js";
+import { exportGroceryListAsCsv } from "../services/groceryExport.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -60,6 +62,22 @@ const updateStatusSchema = z.object({
   status: z.enum(["active", "purchased"]),
 });
 
+/**
+ * @openapi
+ * /grocery-lists/generate:
+ *   post:
+ *     tags: [Grocery Lists]
+ *     summary: Generate a grocery list from meal plan
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               mealPlanId: { type: string, format: uuid }
+ *     responses:
+ *       201: { description: Grocery list generated }
+ */
 router.post(
   "/generate",
   rateLimitMiddleware,
@@ -68,6 +86,7 @@ router.post(
       const customerId = b2cId(req);
       const parsed = generateSchema.parse(req.body ?? {});
       const result = await generateGroceryList(customerId, parsed);
+      trackFeature(customerId, "grocery_list", "generate");
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -75,6 +94,25 @@ router.post(
   }
 );
 
+/**
+ * @openapi
+ * /grocery-lists:
+ *   get:
+ *     tags: [Grocery Lists]
+ *     summary: List grocery lists
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [draft, active, purchased, archived] }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *     responses:
+ *       200: { description: Paginated grocery lists }
+ */
 router.get(
   "/",
   rateLimitMiddleware,
@@ -95,6 +133,20 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /grocery-lists/{id}:
+ *   get:
+ *     tags: [Grocery Lists]
+ *     summary: Get grocery list detail
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Full grocery list with items }
+ */
 router.get(
   "/:id",
   rateLimitMiddleware,
@@ -109,6 +161,29 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /grocery-lists/{id}/status:
+ *   put:
+ *     tags: [Grocery Lists]
+ *     summary: Update grocery list status
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [active, purchased] }
+ *     responses:
+ *       200: { description: Status updated }
+ */
 router.put(
   "/:id/status",
   rateLimitMiddleware,
@@ -124,6 +199,34 @@ router.put(
   }
 );
 
+/**
+ * @openapi
+ * /grocery-lists/{id}/items/{itemId}:
+ *   put:
+ *     tags: [Grocery Lists]
+ *     summary: Update a grocery list item
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               isPurchased: { type: boolean }
+ *               actualPrice: { type: number }
+ *               substitutedProductId: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Item updated }
+ */
 router.put(
   "/:id/items/:itemId",
   rateLimitMiddleware,
@@ -139,6 +242,33 @@ router.put(
   }
 );
 
+/**
+ * @openapi
+ * /grocery-lists/{id}/items:
+ *   post:
+ *     tags: [Grocery Lists]
+ *     summary: Add item to grocery list
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [itemName, quantity]
+ *             properties:
+ *               itemName: { type: string }
+ *               quantity: { type: number }
+ *               unit: { type: string }
+ *               category: { type: string }
+ *               estimatedPrice: { type: number }
+ *     responses:
+ *       201: { description: Item added }
+ */
 router.post(
   "/:id/items",
   rateLimitMiddleware,
@@ -160,6 +290,66 @@ router.post(
   }
 );
 
+/**
+ * @openapi
+ * /grocery-lists/{id}/export:
+ *   get:
+ *     tags: [Grocery Lists]
+ *     summary: Export grocery list as CSV
+ *     description: Downloads the grocery list as a CSV file.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: CSV file download
+ *         content:
+ *           text/csv:
+ *             schema: { type: string }
+ */
+router.get(
+  "/:id/export",
+  rateLimitMiddleware,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const customerId = b2cId(req);
+      const { csv, filename } = await exportGroceryListAsCsv(
+        customerId,
+        req.params.id
+      );
+      trackFeature(customerId, "grocery_list", "export_csv");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
+      res.send(csv);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * @openapi
+ * /grocery-lists/{id}/items/{itemId}:
+ *   delete:
+ *     tags: [Grocery Lists]
+ *     summary: Delete an item from grocery list
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Item deleted }
+ */
 router.delete(
   "/:id/items/:itemId",
   rateLimitMiddleware,
@@ -174,6 +364,24 @@ router.delete(
   }
 );
 
+/**
+ * @openapi
+ * /grocery-lists/{id}/items/{itemId}/substitutions:
+ *   get:
+ *     tags: [Grocery Lists]
+ *     summary: Get substitutions for a grocery item
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Available substitutions }
+ */
 router.get(
   "/:id/items/:itemId/substitutions",
   rateLimitMiddleware,

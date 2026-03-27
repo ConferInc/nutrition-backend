@@ -34,6 +34,7 @@ const envSchema = z.object({
   USE_GRAPH_CHATBOT: z.string().default("false"),
   USE_GRAPH_NOTIFICATION: z.string().default("false"),
   NOTIFICATION_CRON_ENABLED: z.string().default("false"),
+  MAX_DAILY_NOTIFICATIONS: z.string().transform(Number).default("2"),
 });
 
 function validateEnv() {

@@ -6,12 +6,24 @@ import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 const router = Router();
 
 /**
- * GET /api/v1/recipe-meta
- * Returns all dropdown data needed by the Create Recipe form in a single call:
- *   - cuisines (from gold.cuisines)
- *   - mealTypes (from gold.recipes CHECK constraint)
- *   - diets (from gold.dietary_preferences)
- *   - allergens (from gold.allergens with is_top_9 flag)
+ * @openapi
+ * /recipe-meta:
+ *   get:
+ *     tags: [Recipe Meta]
+ *     summary: Get all dropdown data for Create Recipe form
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Cuisines, meal types, diets, and allergens
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 cuisines: { type: array, items: { type: object } }
+ *                 mealTypes: { type: array, items: { type: string } }
+ *                 diets: { type: array, items: { type: object } }
+ *                 allergens: { type: array, items: { type: object } }
  */
 router.get("/", async (_req, res, next) => {
     try {
@@ -62,24 +74,48 @@ router.get("/", async (_req, res, next) => {
 });
 
 /**
- * POST /api/v1/recipe-meta/detect-allergens
- * Given ingredient names, returns auto-detected allergens via gold.ingredient_allergens.
- *
- * Body: { ingredient_names: string[] }
- * Response: { detected_allergens: [{ allergen_id, code, name, matched_ingredient }] }
+ * @openapi
+ * /recipe-meta/detect-allergens:
+ *   post:
+ *     tags: [Recipe Meta]
+ *     summary: Auto-detect allergens from ingredient names
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [ingredient_names]
+ *             properties:
+ *               ingredient_names: { type: array, items: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Detected allergens
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 detected_allergens:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       allergen_id: { type: string, format: uuid }
+ *                       code: { type: string }
+ *                       name: { type: string }
+ *                       matched_ingredient: { type: string }
  */
 router.post("/detect-allergens", authMiddleware, async (req, res, next) => {
     try {
         requireB2cCustomerIdFromReq(req); // ensure authenticated
 
         const rawNames: string[] = req.body?.ingredient_names ?? [];
-        // Filter out empty/whitespace-only names to avoid ILIKE '%%' matching everything
         const names = rawNames.map((n) => (typeof n === "string" ? n.trim() : "")).filter((n) => n.length > 0);
         if (!Array.isArray(rawNames) || names.length === 0) {
             return res.json({ detected_allergens: [] });
         }
 
-        // Fuzzy-match ingredient names to gold.ingredients, then join to ingredient_allergens
         const rows = await executeRaw(
             `
       WITH matched_ingredients AS (
