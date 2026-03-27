@@ -1,6 +1,9 @@
 // server/services/ragClient.ts
 // PRD-09: Circuit breaker + SQL fallback client for RAG API
+// PRD-33: Context param added to ragFeed, ragSearch, ragChat
 // ─────────────────────────────────────────────────────────
+
+import type { RecommendationContext } from "./contextBuilder.js";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -14,7 +17,8 @@ type FeatureName =
     | "scanner"
     | "mealLog"
     | "chatbot"
-    | "substitution";
+    | "substitution"
+    | "notification";
 
 interface FeatureConfig {
     flag: string;
@@ -25,16 +29,16 @@ interface FeatureConfig {
 // ── Per-Feature Configuration ────────────────────────────
 
 const FEATURE_CONFIG: Record<FeatureName, FeatureConfig> = {
-    search: { flag: "USE_GRAPH_SEARCH", endpoint: "/search/hybrid", timeout: 60_000 },
-    feed: { flag: "USE_GRAPH_FEED", endpoint: "/recommend/feed", timeout: 60_000 },
-    mealPlan: { flag: "USE_GRAPH_MEAL_PLAN", endpoint: "/recommend/meal-candidates", timeout: 60_000 },
-    grocery: { flag: "USE_GRAPH_GROCERY", endpoint: "/recommend/products", timeout: 60_000 },
-    scanner: { flag: "USE_GRAPH_SCANNER", endpoint: "/recommend/alternatives", timeout: 60_000 },
-    mealLog: { flag: "USE_GRAPH_MEAL_LOG", endpoint: "/analytics/meal-patterns", timeout: 60_000 },
-    chatbot: { flag: "USE_GRAPH_CHATBOT", endpoint: "/chat/process", timeout: 60_000 },
-    substitution: { flag: "USE_GRAPH_GROCERY", endpoint: "/substitutions/ingredient", timeout: 60_000 },
+    search: { flag: "USE_GRAPH_SEARCH", endpoint: "/search/hybrid", timeout: 8_000 },
+    feed: { flag: "USE_GRAPH_FEED", endpoint: "/recommend/feed", timeout: 8_000 },
+    mealPlan: { flag: "USE_GRAPH_MEAL_PLAN", endpoint: "/recommend/meal-candidates", timeout: 10_000 },
+    grocery: { flag: "USE_GRAPH_GROCERY", endpoint: "/recommend/products", timeout: 8_000 },
+    scanner: { flag: "USE_GRAPH_SCANNER", endpoint: "/recommend/alternatives", timeout: 8_000 },
+    mealLog: { flag: "USE_GRAPH_MEAL_LOG", endpoint: "/analytics/meal-patterns", timeout: 8_000 },
+    chatbot: { flag: "USE_GRAPH_CHATBOT", endpoint: "/chat/process", timeout: 15_000 },
+    substitution: { flag: "USE_GRAPH_GROCERY", endpoint: "/substitutions/ingredient", timeout: 8_000 },
+    notification: { flag: "USE_GRAPH_NOTIFICATION", endpoint: "/notifications/generate", timeout: 5_000 },
 } as const;
-// ⚠️ Testing timeouts above — prod values: search/feed/grocery/scanner/mealLog=3s, mealPlan=5s, chatbot=10s
 
 // ── Circuit Breaker Constants ────────────────────────────
 
@@ -61,9 +65,14 @@ function shouldAllowRequest(): boolean {
     if (circuitState === "OPEN") {
         // Check cooldown
         if (lastFailureAt && Date.now() - lastFailureAt >= COOLDOWN_MS) {
+            const prev = circuitState;
             circuitState = "HALF_OPEN";
             halfOpenProbeInFlight = false;
-            console.log("[RAG] Circuit → HALF_OPEN (cooldown expired, allowing test request)");
+            console.info(JSON.stringify({
+                event: "circuit_transition", from: prev, to: "HALF_OPEN",
+                reason: "cooldown_expired", consecutiveFailures,
+                ts: new Date().toISOString(),
+            }));
             // fall through to HALF_OPEN check below
         } else {
             return false;
@@ -81,8 +90,13 @@ function shouldAllowRequest(): boolean {
 }
 
 function recordSuccess(): void {
+    const prevState = circuitState;
     if (circuitState !== "CLOSED") {
-        console.log("[RAG] Circuit → CLOSED (request succeeded)");
+        console.info(JSON.stringify({
+            event: "circuit_transition", from: prevState, to: "CLOSED",
+            reason: "request_succeeded", consecutiveFailures: 0,
+            ts: new Date().toISOString(),
+        }));
     }
     circuitState = "CLOSED";
     consecutiveFailures = 0;
@@ -95,10 +109,13 @@ function recordFailure(): void {
     halfOpenProbeInFlight = false;
 
     if (consecutiveFailures >= FAILURE_THRESHOLD && circuitState !== "OPEN") {
+        const prevState = circuitState;
         circuitState = "OPEN";
-        console.log(
-            `[RAG] Circuit → OPEN (${consecutiveFailures} consecutive failures, cooldown ${COOLDOWN_MS / 1000}s)`
-        );
+        console.info(JSON.stringify({
+            event: "circuit_transition", from: prevState, to: "OPEN",
+            consecutiveFailures, cooldownMs: COOLDOWN_MS,
+            ts: new Date().toISOString(),
+        }));
     }
 }
 
@@ -112,12 +129,21 @@ async function callRag<T>(
 
     // Gate 1: Feature flag
     if (!isFeatureEnabled(feature)) {
+        console.info(JSON.stringify({
+            event: "rag_skip", feature, reason: "FEATURE_DISABLED",
+            flag: config.flag, ts: new Date().toISOString(),
+        }));
         return null;
     }
 
     // Gate 2: Circuit breaker
     if (!shouldAllowRequest()) {
-        console.log(`[RAG] ${feature} → SKIPPED (circuit OPEN)`);
+        console.info(JSON.stringify({
+            event: "rag_skip", feature, reason: "CIRCUIT_OPEN",
+            circuitState, consecutiveFailures,
+            cooldownRemainingMs: lastFailureAt ? Math.max(0, COOLDOWN_MS - (Date.now() - lastFailureAt)) : 0,
+            ts: new Date().toISOString(),
+        }));
         return null;
     }
 
@@ -150,24 +176,48 @@ async function callRag<T>(
         const elapsed = Date.now() - startTime;
 
         if (!response.ok) {
-            console.error(`[RAG] ${feature} → ${response.status} (${elapsed}ms) → SQL fallback`);
+            console.info(JSON.stringify({
+                event: "rag_call", feature, endpoint: config.endpoint,
+                status: response.status, ok: false,
+                elapsedMs: elapsed, timeoutMs: config.timeout,
+                circuitState, consecutiveFailures,
+                ts: new Date().toISOString(),
+            }));
             recordFailure();
             return null;
         }
 
         const data = (await response.json()) as T;
-        console.log(`[RAG] ${feature} → 200 (${elapsed}ms)`);
+        // Count results from whichever array shape the response uses
+        const d = data as any;
+        const resultCount = Array.isArray(d?.results) ? d.results.length
+            : Array.isArray(d?.candidates) ? d.candidates.length
+            : Array.isArray(d?.products) ? d.products.length
+            : Array.isArray(d?.alternatives) ? d.alternatives.length
+            : Array.isArray(d?.substitutions) ? d.substitutions.length
+            : 1;
+        console.info(JSON.stringify({
+            event: "rag_call", feature, endpoint: config.endpoint,
+            status: 200, ok: true,
+            elapsedMs: elapsed, timeoutMs: config.timeout, resultCount,
+            circuitState, consecutiveFailures,
+            ts: new Date().toISOString(),
+        }));
         recordSuccess();
         return data;
     } catch (error: unknown) {
         clearTimeout(timeoutId);
         const elapsed = Date.now() - startTime;
 
-        if (error instanceof Error && error.name === "AbortError") {
-            console.error(`[RAG] ${feature} → TIMEOUT (${elapsed}ms) → SQL fallback`);
-        } else {
-            console.error(`[RAG] ${feature} → ERROR (${elapsed}ms) → SQL fallback`, error);
-        }
+        const errStatus = (error instanceof Error && error.name === "AbortError") ? "TIMEOUT" : "ERROR";
+        console.info(JSON.stringify({
+            event: "rag_call", feature, endpoint: config.endpoint,
+            status: errStatus, ok: false,
+            error: (error instanceof Error) ? error.message : String(error),
+            elapsedMs: elapsed, timeoutMs: config.timeout,
+            circuitState, consecutiveFailures,
+            ts: new Date().toISOString(),
+        }));
 
         recordFailure();
         return null;
@@ -271,12 +321,30 @@ export interface RagChatResult {
     }>;
 }
 
+// ── Helpers ──────────────────────────────────────────────
+
+/** Map B2C householdType to RAG scope parameter */
+export function toRagScope(householdType?: string | null): string | undefined {
+    if (!householdType) return undefined;
+    const map: Record<string, string> = {
+        individual: "individual",
+        family: "family",
+        couple: "couple",
+    };
+    return map[householdType.toLowerCase()] ?? undefined;
+}
+
 // ── Feature Functions ────────────────────────────────────
 
 export async function ragSearch(params: {
     query?: string;
     filters?: Record<string, unknown>;
     customer_id?: string;
+    member_id?: string;
+    member_profile?: Record<string, unknown>;
+    household_id?: string;
+    scope?: string;
+    context?: RecommendationContext;
 }): Promise<RagSearchResult | null> {
     return callRag<RagSearchResult>("search", params);
 }
@@ -288,11 +356,27 @@ export async function ragFeed(
         allergenIds?: string[];
         conditionIds?: string[];
         dislikes?: string[];
-    }
+    },
+    memberId?: string,
+    memberProfile?: Record<string, unknown>,
+    householdType?: string,
+    totalMembers?: number,
+    householdId?: string,
+    scope?: string,
+    mealType?: string,
+    context?: RecommendationContext
 ): Promise<RagFeedResult | null> {
     return callRag<RagFeedResult>("feed", {
         customer_id: customerId,
         preferences,
+        ...(memberId ? { member_id: memberId } : {}),
+        ...(memberProfile ? { member_profile: memberProfile } : {}),
+        ...(householdType ? { household_type: householdType } : {}),
+        ...(totalMembers ? { total_members: totalMembers } : {}),
+        ...(householdId ? { household_id: householdId } : {}),
+        ...(scope ? { scope } : {}),
+        ...(mealType ? { meal_type: mealType } : {}),
+        ...(context ? { context } : {}),
     });
 }
 
@@ -308,17 +392,36 @@ export async function ragMealCandidates(params: {
     date_range: { start: string; end: string };
     meals_per_day: string[];
     limit?: number;
+    household_type?: string;
+    total_members?: number;
+    household_id?: string;
+    scope?: string;
+    member_profile?: Record<string, unknown>;
+    meal_type?: string;
+    exclude_ids?: string[];
 }): Promise<RagMealCandidatesResult | null> {
     return callRag<RagMealCandidatesResult>("mealPlan", params);
 }
 
 export async function ragProducts(
     ingredientIds: string[],
-    customerAllergens: string[]
+    customerAllergens: string[],
+    certificationCategories?: string[],
+    preferredBrands?: string[],
+    householdType?: string,
+    totalMembers?: number,
+    householdBudget?: { amount: number; period: string; currency: string } | null,
+    ingredientNames?: Record<string, string>
 ): Promise<RagProductsResult | null> {
     return callRag<RagProductsResult>("grocery", {
         ingredient_ids: ingredientIds,
         customer_allergens: customerAllergens,
+        quality_preferences: certificationCategories ?? [],
+        preferred_brands: preferredBrands ?? [],
+        ...(householdType ? { household_type: householdType } : {}),
+        ...(totalMembers ? { total_members: totalMembers } : {}),
+        ...(householdBudget ? { household_budget: householdBudget.amount } : {}),
+        ...(ingredientNames ? { ingredient_names: ingredientNames } : {}),
     });
 }
 
@@ -334,23 +437,41 @@ export async function ragAlternatives(
 
 export async function ragMealPatterns(
     customerId: string,
-    days: number = 14
+    days: number = 14,
+    householdType?: string,
+    totalMembers?: number
 ): Promise<RagMealPatternsResult | null> {
     return callRag<RagMealPatternsResult>("mealLog", {
         customer_id: customerId,
         days,
+        ...(householdType ? { household_type: householdType } : {}),
+        ...(totalMembers ? { total_members: totalMembers } : {}),
     });
 }
 
 export async function ragChat(
     message: string,
     customerId: string,
-    sessionId?: string | null
+    sessionId?: string | null,
+    memberId?: string,
+    memberProfile?: Record<string, unknown>,
+    householdType?: string,
+    totalMembers?: number,
+    householdId?: string,
+    displayName?: string,
+    context?: RecommendationContext
 ): Promise<RagChatResult | null> {
     return callRag<RagChatResult>("chatbot", {
         message,
         customer_id: customerId,
         session_id: sessionId ?? null,
+        ...(memberId ? { member_id: memberId } : {}),
+        ...(memberProfile ? { member_profile: memberProfile } : {}),
+        ...(householdType ? { household_type: householdType } : {}),
+        ...(totalMembers ? { total_members: totalMembers } : {}),
+        ...(householdId ? { household_id: householdId } : {}),
+        ...(displayName ? { display_name: displayName } : {}),
+        ...(context ? { context } : {}),
     });
 }
 
@@ -377,6 +498,26 @@ export async function ragIngredientSubstitutions(
         ingredient_id: ingredientId,
         customer_allergens: customerAllergens,
     });
+}
+
+// ── Notifications ────────────────────────────────────────
+
+export interface RagNotificationResult {
+    title: string;
+    body: string;
+    action_url: string;
+    icon: string;
+    type: string;
+}
+
+export async function ragNotifications(params: {
+    customer_id: string;
+    trigger_type: string;
+    meal_log_summary?: Record<string, unknown>;
+    health_profile?: Record<string, unknown>;
+    timezone?: string;
+}): Promise<RagNotificationResult | null> {
+    return callRag<RagNotificationResult>("notification", params);
 }
 
 // ── Admin Diagnostics ────────────────────────────────────
@@ -406,6 +547,7 @@ export function getCircuitStatus() {
             mealLog: isFeatureEnabled("mealLog"),
             chatbot: isFeatureEnabled("chatbot"),
             substitution: isFeatureEnabled("substitution"),
+            notification: isFeatureEnabled("notification"),
         },
         ragApiUrl: process.env.RAG_API_URL ?? "(not configured)",
     };

@@ -1,6 +1,9 @@
 import { ragChat } from "./ragClient.js";
+import { getMemberPrefs, toRagProfile } from "./memberPrefs.js";
+import { getOrCreateHousehold } from "./household.js";
+import { buildRecommendationContext } from "./contextBuilder.js";
 import { db } from "../config/database.js";
-import { chatSessions } from "../../shared/goldSchema.js";
+import { chatSessions, b2cCustomers } from "../../shared/goldSchema.js";
 import { eq, desc, and } from "drizzle-orm";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -20,10 +23,62 @@ export interface ChatResponse {
 export async function processMessage(
     customerId: string,
     message: string,
-    sessionId?: string
+    sessionId?: string,
+    memberId?: string
 ): Promise<ChatResponse> {
-    // Try RAG chatbot
-    const ragResponse = await ragChat(message, customerId, sessionId ?? null);
+    // Resolve household context for RAG personalization
+    const household = await getOrCreateHousehold(customerId);
+
+    // Resolve member profile for RAG personalization (household-aware)
+    let memberProfile: Record<string, unknown> | undefined;
+    const effectiveId = memberId || customerId;
+    if (memberId) {
+        const prefs = await getMemberPrefs(memberId);
+        memberProfile = toRagProfile(prefs);
+    }
+
+    // Try RAG chatbot — pass member + household context per-message
+    // Fetch display name: use member name if memberId is set, else primary customer
+    let displayName: string | undefined;
+    if (memberId) {
+        const memberRow = await db
+            .select({ firstName: b2cCustomers.firstName, fullName: b2cCustomers.fullName })
+            .from(b2cCustomers)
+            .where(eq(b2cCustomers.id, memberId))
+            .limit(1);
+        if (memberRow[0]) {
+            displayName = memberRow[0].firstName
+                || memberRow[0].fullName?.split(" ")[0]
+                || undefined;
+        }
+        // If memberId was provided but row not found, skip — don't misattribute primary customer's name
+    }
+    if (!displayName && !memberId) {
+        const custRow = await db
+            .select({ fullName: b2cCustomers.fullName })
+            .from(b2cCustomers)
+            .where(eq(b2cCustomers.id, customerId))
+            .limit(1);
+        displayName = custRow[0]?.fullName ?? undefined;
+    }
+
+    // PRD-33: Build contextual recommendation context for chat
+    const context = await buildRecommendationContext(customerId, {
+        timezone: household.timezone ?? undefined,
+        locationCountry: household.locationCountry,
+        locationState: (household as any).locationState,
+        locationZipCode: (household as any).locationZipCode,
+    });
+
+    const ragResponse = await ragChat(
+        message, customerId, sessionId ?? null,
+        memberId, memberProfile,
+        household.householdType ?? undefined,
+        household.totalMembers ?? undefined,
+        household.id,
+        displayName,
+        context
+    );
 
     if (ragResponse) {
         // Update session in PG

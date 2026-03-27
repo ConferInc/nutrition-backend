@@ -3,7 +3,21 @@ import { env } from "../config/env.js";
 
 // In-memory rate limiting store
 // NOTE: For multi-instance deployments, replace with Redis-based limiter.
+// PERF-01: Capped at 10K entries to prevent unbounded memory growth.
+const MAX_STORE_SIZE = 10_000;
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
+
+/** Evict oldest 20% of entries when Map exceeds cap */
+function evictIfNeeded() {
+  if (rateLimitStore.size <= MAX_STORE_SIZE) return;
+  const toDelete = Math.floor(rateLimitStore.size * 0.2);
+  let deleted = 0;
+  for (const key of rateLimitStore.keys()) {
+    if (deleted >= toDelete) break;
+    rateLimitStore.delete(key);
+    deleted++;
+  }
+}
 
 // Cleanup timer reference for proper shutdown
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -35,6 +49,7 @@ export async function rateLimitMiddleware(req: Request, res: Response, next: Nex
   // Increment counter
   bucketState.count++;
   rateLimitStore.set(bucket, bucketState);
+  evictIfNeeded(); // PERF-01: enforce size cap
 
   // Calculate remaining requests
   const remaining = Math.max(0, limit - bucketState.count);

@@ -8,6 +8,7 @@ import {
 import { getOrCreateHousehold } from "./household.js";
 import { canTransitionGroceryListStatus } from "./groceryListUtils.js";
 import { ragProducts, ragAlternatives } from "./ragClient.js";
+import { getGroceryPreferences, getCertCategoriesForPreferences } from "./groceryPreferences.js";
 
 export interface GenerateGroceryListInput {
   mealPlanId?: string;
@@ -305,9 +306,18 @@ async function getHouseholdAllergenIds(householdId: string): Promise<string[]> {
 
 async function matchProductsWithRAG(
   ingredientIds: string[],
-  allergenIds: string[]
+  allergenIds: string[],
+  certificationCategories?: string[],
+  preferredBrands?: string[],
+  householdType?: string,
+  totalMembers?: number,
+  householdBudget?: { amount: number; period: string; currency: string } | null,
+  ingredientNames?: Record<string, string>
 ): Promise<Map<string, ProductCandidate> | null> {
-  const result = await ragProducts(ingredientIds, allergenIds);
+  const result = await ragProducts(
+      ingredientIds, allergenIds, certificationCategories, preferredBrands,
+      householdType, totalMembers, householdBudget, ingredientNames
+  );
   if (!result || !result.products?.length) return null;
 
   const map = new Map<string, ProductCandidate>();
@@ -473,9 +483,38 @@ export async function generateGroceryList(
     fetchIngredientMappedCandidates(ingredientIds),
   ]);
 
+  // Fetch grocery preferences for certification/brand filtering
+  const groceryPrefs = await getGroceryPreferences(household.id);
+  const certCategories = await getCertCategoriesForPreferences(groceryPrefs.certificationIds);
+  const preferredBrandNames = groceryPrefs.brands.map(b => b.name);
+
   // PRD-13: Try graph-aware allergen-safe product matching
   const allergenIds = await getHouseholdAllergenIds(household.id);
-  const graphProductMap = await matchProductsWithRAG(ingredientIds, allergenIds);
+
+  // Fetch active grocery budget for RAG budget-aware ranking
+  const budgetRows = (await executeRaw(
+    `SELECT amount, period, currency FROM gold.household_budgets
+     WHERE household_id = $1 AND budget_type = 'grocery' AND is_active = true
+     ORDER BY created_at DESC LIMIT 1`,
+    [household.id]
+  )) as any[];
+  const activeBudget = budgetRows.length > 0
+    ? { amount: Number(budgetRows[0].amount), period: budgetRows[0].period as string, currency: (budgetRows[0].currency ?? "USD") as string }
+    : null;
+
+  // Build ingredient name map for RAG name-based fallback matching
+  const ingredientNameMap: Record<string, string> = {};
+  for (const bucket of bucketValues) {
+    ingredientNameMap[bucket.ingredientId] = bucket.itemName;
+  }
+
+  const graphProductMap = await matchProductsWithRAG(
+    ingredientIds, allergenIds, certCategories, preferredBrandNames,
+    household.householdType ?? undefined,
+    household.totalMembers ?? undefined,
+    activeBudget,
+    ingredientNameMap
+  );
 
   let pricedItems = 0;
   let skippedByCurrency = 0;
@@ -500,7 +539,10 @@ export async function generateGroceryList(
     return {
       productId: selected?.id ?? null,
       ingredientId: bucket.ingredientId,
-      itemName: bucket.itemName,
+      itemName: selected
+        ? `${selected.name}${selected.brand ? ` (${selected.brand})` : ""}`
+        : bucket.itemName,
+      sourceType: selected ? "product" as const : "ingredient" as const,
       quantity: String(round2(bucket.quantity)),
       unit: bucket.unit,
       category: selected?.category_name ?? bucket.ingredientCategory ?? "Other",
