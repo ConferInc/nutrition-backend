@@ -28,7 +28,15 @@ const setPreferenceSchema = z.object({
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
-// GET /api/v1/households/preferences
+/**
+ * @openapi
+ * /households/preferences:
+ *   get:
+ *     tags: [Household Preferences]
+ *     summary: Get household preferences
+ *     responses:
+ *       200: { description: List of household preferences }
+ */
 router.get(
   "/",
   rateLimitMiddleware,
@@ -44,7 +52,26 @@ router.get(
   }
 );
 
-// POST /api/v1/households/preferences
+/**
+ * @openapi
+ * /households/preferences:
+ *   post:
+ *     tags: [Household Preferences]
+ *     summary: Set a household preference
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [preferenceType, preferenceValue]
+ *             properties:
+ *               preferenceType: { type: string, maxLength: 50 }
+ *               preferenceValue: { type: string, maxLength: 255 }
+ *               priority: { type: integer }
+ *     responses:
+ *       200: { description: Preference set }
+ */
 router.post(
   "/",
   rateLimitMiddleware,
@@ -66,7 +93,20 @@ router.post(
   }
 );
 
-// DELETE /api/v1/households/preferences/:id
+/**
+ * @openapi
+ * /households/preferences/{id}:
+ *   delete:
+ *     tags: [Household Preferences]
+ *     summary: Delete a household preference
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       204: { description: Preference deleted }
+ */
 router.delete(
   "/:id",
   rateLimitMiddleware,

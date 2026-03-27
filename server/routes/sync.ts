@@ -11,13 +11,30 @@ function getJsonBody(req: any) {
   return req.body || {};
 }
 
-/** POST /api/v1/sync/profile */
+/**
+ * @openapi
+ * /sync/profile:
+ *   post:
+ *     tags: [Sync]
+ *     summary: Sync user profile from Appwrite to Supabase
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [profile]
+ *             properties:
+ *               profile: { type: object }
+ *               account: { type: object }
+ *     responses:
+ *       200: { description: Profile synced }
+ *       400: { description: Missing user or profile }
+ */
 router.post("/profile", authMiddleware, async (req, res, next) => {
   try {
     const body = getJsonBody(req);
     const profile = body?.profile ?? null;
-
-    // Use the authenticated user's ID — ignore any userId in the body
     const userId = (req as any).user?.effectiveUserId ?? (req as any).user?.userId;
 
     if (!userId || !profile) {
@@ -28,13 +45,29 @@ router.post("/profile", authMiddleware, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-/** POST /api/v1/sync/health */
+/**
+ * @openapi
+ * /sync/health:
+ *   post:
+ *     tags: [Sync]
+ *     summary: Sync health profile from Appwrite to Supabase
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [health]
+ *             properties:
+ *               health: { type: object }
+ *     responses:
+ *       200: { description: Health synced }
+ *       400: { description: Missing user or health }
+ */
 router.post("/health", authMiddleware, async (req, res, next) => {
   try {
     const body = getJsonBody(req);
     const health = body?.health ?? null;
-
-    // Use the authenticated user's ID — ignore any userId in the body
     const userId = (req as any).user?.effectiveUserId ?? (req as any).user?.userId;
 
     if (!userId || !health) {

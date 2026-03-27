@@ -5,6 +5,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rateLimit.js";
 import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 import { AppError } from "../middleware/errorHandler.js";
+import { trackFeature } from "../services/featureTracking.js";
 import {
   generateMealPlan,
   listPlans,
@@ -77,7 +78,38 @@ const reorderSchema = z.object({
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
-// POST /api/v1/meal-plans/generate
+/**
+ * @openapi
+ * /meal-plans/generate:
+ *   post:
+ *     tags: [Meal Plans]
+ *     summary: Generate a new meal plan
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [startDate, endDate, memberIds]
+ *             properties:
+ *               startDate: { type: string, format: date }
+ *               endDate: { type: string, format: date }
+ *               memberIds: { type: array, items: { type: string, format: uuid } }
+ *               budgetAmount: { type: number }
+ *               budgetCurrency: { type: string, maxLength: 3 }
+ *               mealsPerDay: { type: array, items: { type: string, enum: [breakfast, lunch, dinner, snack] } }
+ *               preferences:
+ *                 type: object
+ *                 properties:
+ *                   maxCookTime: { type: integer }
+ *                   cuisines: { type: array, items: { type: string } }
+ *                   excludeRecipeIds: { type: array, items: { type: string, format: uuid } }
+ *                   prompt: { type: string, maxLength: 1000 }
+ *     responses:
+ *       201: { description: Meal plan generated }
+ *       400: { description: Validation error }
+ *       401: { description: Unauthorized }
+ */
 router.post(
   "/generate",
   rateLimitMiddleware,
@@ -86,6 +118,7 @@ router.post(
       const customerId = b2cId(req);
       const parsed = generateSchema.parse(req.body);
       const result = await generateMealPlan(customerId, parsed);
+      trackFeature(customerId, "meal_plan", "generate", { mealsPerDay: parsed.mealsPerDay.length });
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -93,7 +126,28 @@ router.post(
   }
 );
 
-// GET /api/v1/meal-plans
+/**
+ * @openapi
+ * /meal-plans:
+ *   get:
+ *     tags: [Meal Plans]
+ *     summary: List meal plans
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Paginated list of meal plans }
+ */
 router.get(
   "/",
   rateLimitMiddleware,
@@ -112,7 +166,21 @@ router.get(
   }
 );
 
-// GET /api/v1/meal-plans/:id
+/**
+ * @openapi
+ * /meal-plans/{id}:
+ *   get:
+ *     tags: [Meal Plans]
+ *     summary: Get meal plan detail
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Full meal plan with items }
+ *       404: { description: Plan not found }
+ */
 router.get(
   "/:id",
   rateLimitMiddleware,
@@ -126,7 +194,20 @@ router.get(
   }
 );
 
-// PUT /api/v1/meal-plans/:id/activate
+/**
+ * @openapi
+ * /meal-plans/{id}/activate:
+ *   put:
+ *     tags: [Meal Plans]
+ *     summary: Activate a meal plan
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Plan activated }
+ */
 router.put(
   "/:id/activate",
   rateLimitMiddleware,
@@ -141,7 +222,30 @@ router.put(
   }
 );
 
-// POST /api/v1/meal-plans/:id/swap-meal
+/**
+ * @openapi
+ * /meal-plans/{id}/swap-meal:
+ *   post:
+ *     tags: [Meal Plans]
+ *     summary: Swap a meal in a plan
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [itemId]
+ *             properties:
+ *               itemId: { type: string, format: uuid }
+ *               reason: { type: string, maxLength: 500 }
+ *     responses:
+ *       200: { description: Meal swapped }
+ */
 router.post(
   "/:id/swap-meal",
   rateLimitMiddleware,
@@ -150,6 +254,7 @@ router.post(
       const customerId = b2cId(req);
       const parsed = swapSchema.parse(req.body);
       const result = await swapMeal(req.params.id, parsed.itemId, customerId, parsed.reason);
+      trackFeature(customerId, "meal_plan", "swap");
       res.json(result);
     } catch (err) {
       next(err);
@@ -157,7 +262,33 @@ router.post(
   }
 );
 
-// POST /api/v1/meal-plans/:id/add-item
+/**
+ * @openapi
+ * /meal-plans/{id}/add-item:
+ *   post:
+ *     tags: [Meal Plans]
+ *     summary: Add an item to a meal plan
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [recipeId, mealDate, mealType]
+ *             properties:
+ *               recipeId: { type: string, format: uuid }
+ *               mealDate: { type: string, format: date }
+ *               mealType: { type: string, enum: [breakfast, lunch, dinner, snack] }
+ *               servings: { type: integer }
+ *               replaceItemId: { type: string, format: uuid }
+ *     responses:
+ *       201: { description: Item added }
+ */
 router.post(
   "/:id/add-item",
   rateLimitMiddleware,
@@ -173,7 +304,36 @@ router.post(
   }
 );
 
-// PATCH /api/v1/meal-plans/:id/reorder
+/**
+ * @openapi
+ * /meal-plans/{id}/reorder:
+ *   patch:
+ *     tags: [Meal Plans]
+ *     summary: Reorder items in a meal plan
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [moves]
+ *             properties:
+ *               moves:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     itemId: { type: string, format: uuid }
+ *                     mealDate: { type: string, format: date }
+ *                     mealType: { type: string, enum: [breakfast, lunch, dinner, snack] }
+ *     responses:
+ *       200: { description: Items reordered }
+ */
 router.patch(
   "/:id/reorder",
   rateLimitMiddleware,
@@ -188,7 +348,24 @@ router.patch(
   }
 );
 
-// DELETE /api/v1/meal-plans/:id/items/:itemId
+/**
+ * @openapi
+ * /meal-plans/{id}/items/{itemId}:
+ *   delete:
+ *     tags: [Meal Plans]
+ *     summary: Delete an item from a meal plan
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Item deleted }
+ */
 router.delete(
   "/:id/items/:itemId",
   rateLimitMiddleware,
@@ -202,7 +379,20 @@ router.delete(
   }
 );
 
-// POST /api/v1/meal-plans/:id/regenerate
+/**
+ * @openapi
+ * /meal-plans/{id}/regenerate:
+ *   post:
+ *     tags: [Meal Plans]
+ *     summary: Regenerate a meal plan with new recipes
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       201: { description: Plan regenerated }
+ */
 router.post(
   "/:id/regenerate",
   rateLimitMiddleware,
@@ -217,7 +407,20 @@ router.post(
   }
 );
 
-// DELETE /api/v1/meal-plans/:id
+/**
+ * @openapi
+ * /meal-plans/{id}:
+ *   delete:
+ *     tags: [Meal Plans]
+ *     summary: Delete a meal plan
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Plan deleted }
+ */
 router.delete(
   "/:id",
   rateLimitMiddleware,
@@ -231,7 +434,29 @@ router.delete(
   }
 );
 
-// POST /api/v1/meal-plans/:id/log-meal
+/**
+ * @openapi
+ * /meal-plans/{id}/log-meal:
+ *   post:
+ *     tags: [Meal Plans]
+ *     summary: Log a meal from a plan item
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [itemId]
+ *             properties:
+ *               itemId: { type: string, format: uuid }
+ *     responses:
+ *       201: { description: Meal logged }
+ */
 router.post(
   "/:id/log-meal",
   rateLimitMiddleware,
@@ -240,6 +465,7 @@ router.post(
       const customerId = b2cId(req);
       const parsed = logMealSchema.parse(req.body);
       const result = await logMealFromPlan(req.params.id, parsed.itemId, customerId);
+      trackFeature(customerId, "meal_log", "log_from_plan");
       res.status(201).json(result);
     } catch (err) {
       next(err);

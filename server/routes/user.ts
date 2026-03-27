@@ -95,6 +95,15 @@ const healthSchema = z.object({
   gender: z.string().optional().nullable(),
 });
 
+/**
+ * @openapi
+ * /user/profile:
+ *   get:
+ *     tags: [User]
+ *     summary: Get user profile
+ *     responses:
+ *       200: { description: User profile with diets and allergens }
+ */
 router.get("/profile", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -141,6 +150,29 @@ router.get("/profile", authMiddleware, rateLimitMiddleware, async (req, res, nex
   }
 });
 
+/**
+ * @openapi
+ * /user/profile:
+ *   patch:
+ *     tags: [User]
+ *     summary: Update user profile
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fullName: { type: string }
+ *               email: { type: string, format: email }
+ *               phone: { type: string }
+ *               dateOfBirth: { type: string, format: date }
+ *               gender: { type: string }
+ *               diets: { type: array, items: { type: string } }
+ *               allergens: { type: array, items: { type: string } }
+ *     responses:
+ *       200: { description: Profile updated }
+ */
 router.patch("/profile", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -178,6 +210,15 @@ router.patch("/profile", authMiddleware, rateLimitMiddleware, async (req, res, n
   }
 });
 
+/**
+ * @openapi
+ * /user/profile:
+ *   delete:
+ *     tags: [User]
+ *     summary: Delete user profile data (health, diets, allergens)
+ *     responses:
+ *       204: { description: Profile data deleted }
+ */
 router.delete("/profile", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -191,6 +232,15 @@ router.delete("/profile", authMiddleware, rateLimitMiddleware, async (req, res, 
   }
 });
 
+/**
+ * @openapi
+ * /user/health:
+ *   get:
+ *     tags: [User]
+ *     summary: Get health profile
+ *     responses:
+ *       200: { description: Health profile with conditions, allergens, diets }
+ */
 router.get("/health", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -249,6 +299,34 @@ router.get("/health", authMiddleware, rateLimitMiddleware, async (req, res, next
   }
 });
 
+/**
+ * @openapi
+ * /user/health:
+ *   patch:
+ *     tags: [User]
+ *     summary: Update health profile
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               heightCm: { type: number }
+ *               weightKg: { type: number }
+ *               activityLevel: { type: string }
+ *               healthGoal: { type: string }
+ *               targetCalories: { type: number }
+ *               targetProteinG: { type: number }
+ *               targetCarbsG: { type: number }
+ *               targetFatG: { type: number }
+ *               conditions: { type: array, items: { type: string } }
+ *               allergens: { type: array, items: { type: string } }
+ *               diets: { type: array, items: { type: string } }
+ *               onboardingComplete: { type: boolean }
+ *     responses:
+ *       200: { description: Health profile updated }
+ */
 router.patch("/health", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -329,6 +407,22 @@ router.patch("/health", authMiddleware, rateLimitMiddleware, async (req, res, ne
   }
 });
 
+/**
+ * @openapi
+ * /user/saved:
+ *   get:
+ *     tags: [User]
+ *     summary: Get saved/favorited recipes
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *     responses:
+ *       200: { description: Saved recipes }
+ */
 router.get("/saved", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -341,6 +435,25 @@ router.get("/saved", authMiddleware, rateLimitMiddleware, async (req, res, next)
   }
 });
 
+/**
+ * @openapi
+ * /user/history:
+ *   post:
+ *     tags: [User]
+ *     summary: Log recipe interaction (view, cook, etc.)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [recipeId, event]
+ *             properties:
+ *               recipeId: { type: string, format: uuid }
+ *               event: { type: string }
+ *     responses:
+ *       201: { description: History logged }
+ */
 router.post("/history", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -355,6 +468,25 @@ router.post("/history", authMiddleware, rateLimitMiddleware, async (req, res, ne
   }
 });
 
+/**
+ * @openapi
+ * /user/history:
+ *   get:
+ *     tags: [User]
+ *     summary: Get recipe interaction history
+ *     parameters:
+ *       - in: query
+ *         name: event
+ *         schema: { type: string }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *     responses:
+ *       200: { description: Recipe history }
+ */
 router.get("/history", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -368,6 +500,19 @@ router.get("/history", authMiddleware, rateLimitMiddleware, async (req, res, nex
   }
 });
 
+/**
+ * @openapi
+ * /user/recently-viewed:
+ *   get:
+ *     tags: [User]
+ *     summary: Get recently viewed recipes
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *     responses:
+ *       200: { description: Recently viewed recipes }
+ */
 router.get("/recently-viewed", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -379,6 +524,19 @@ router.get("/recently-viewed", authMiddleware, rateLimitMiddleware, async (req, 
   }
 });
 
+/**
+ * @openapi
+ * /user/most-cooked:
+ *   get:
+ *     tags: [User]
+ *     summary: Get most cooked recipes
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *     responses:
+ *       200: { description: Most cooked recipes }
+ */
 router.get("/most-cooked", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -390,6 +548,15 @@ router.get("/most-cooked", authMiddleware, rateLimitMiddleware, async (req, res,
   }
 });
 
+/**
+ * @openapi
+ * /user/my-recipes:
+ *   post:
+ *     tags: [User]
+ *     summary: Create a user recipe (legacy)
+ *     responses:
+ *       201: { description: Recipe created }
+ */
 // User-generated recipes
 router.post("/my-recipes", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
@@ -401,6 +568,15 @@ router.post("/my-recipes", authMiddleware, rateLimitMiddleware, async (req, res,
   }
 });
 
+/**
+ * @openapi
+ * /user/my-recipes:
+ *   get:
+ *     tags: [User]
+ *     summary: List user's own recipes (legacy)
+ *     responses:
+ *       200: { description: User recipes }
+ */
 router.get("/my-recipes", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -413,6 +589,20 @@ router.get("/my-recipes", authMiddleware, rateLimitMiddleware, async (req, res, 
   }
 });
 
+/**
+ * @openapi
+ * /user/my-recipes/{id}:
+ *   patch:
+ *     tags: [User]
+ *     summary: Update a user recipe (legacy)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Recipe updated }
+ */
 router.patch("/my-recipes/:id", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -423,6 +613,20 @@ router.patch("/my-recipes/:id", authMiddleware, rateLimitMiddleware, async (req,
   }
 });
 
+/**
+ * @openapi
+ * /user/my-recipes/{id}/share:
+ *   post:
+ *     tags: [User]
+ *     summary: Share a user recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Recipe shared }
+ */
 router.post("/my-recipes/:id/share", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -433,6 +637,20 @@ router.post("/my-recipes/:id/share", authMiddleware, rateLimitMiddleware, async 
   }
 });
 
+/**
+ * @openapi
+ * /user/my-recipes/{id}/unshare:
+ *   post:
+ *     tags: [User]
+ *     summary: Unshare a user recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Recipe unshared }
+ */
 router.post("/my-recipes/:id/unshare", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -443,6 +661,20 @@ router.post("/my-recipes/:id/unshare", authMiddleware, rateLimitMiddleware, asyn
   }
 });
 
+/**
+ * @openapi
+ * /user/my-recipes/{id}/submit:
+ *   post:
+ *     tags: [User]
+ *     summary: Submit a user recipe for review
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Recipe submitted for review }
+ */
 router.post("/my-recipes/:id/submit", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -453,6 +685,16 @@ router.post("/my-recipes/:id/submit", authMiddleware, rateLimitMiddleware, async
   }
 });
 
+/**
+ * @openapi
+ * /user/account:
+ *   delete:
+ *     tags: [User]
+ *     summary: Delete user account and all associated data
+ *     description: Permanently deletes all user data across Supabase and Appwrite
+ *     responses:
+ *       204: { description: Account deleted }
+ */
 router.delete("/account", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -577,6 +819,15 @@ const settingsSchema = z.object({
   filterMaxTime: z.number().optional(),
 });
 
+/**
+ * @openapi
+ * /user/settings:
+ *   get:
+ *     tags: [User]
+ *     summary: Get all user settings
+ *     responses:
+ *       200: { description: Full settings object (general, goals, recommend, alerts, filters, location) }
+ */
 router.get("/settings", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);
@@ -658,6 +909,31 @@ router.get("/settings", authMiddleware, rateLimitMiddleware, async (req, res, ne
   }
 });
 
+/**
+ * @openapi
+ * /user/settings:
+ *   patch:
+ *     tags: [User]
+ *     summary: Update user settings
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               units: { type: string }
+ *               preferredCuisines: { type: array, items: { type: string } }
+ *               healthGoal: { type: string }
+ *               targetCalories: { type: number }
+ *               exploration: { type: number }
+ *               enableReminders: { type: boolean }
+ *               locationCountry: { type: string }
+ *               locationState: { type: string }
+ *               locationZipCode: { type: string }
+ *     responses:
+ *       200: { description: Settings updated }
+ */
 router.patch("/settings", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     const id = b2cCustomerId(req);

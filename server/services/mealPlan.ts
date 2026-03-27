@@ -560,7 +560,9 @@ export async function generateMealPlan(
 
   try {
     console.log("[MealPlan] Inserting meal plan into DB…");
-    const planRows = await db
+    // B2C-038: Wrap all writes in a transaction to prevent orphaned plan rows
+    const { plan, insertedItems } = await db.transaction(async (tx) => {
+    const planRows = await tx
       .insert(mealPlans)
       .values({
         householdId: household.id,
@@ -613,10 +615,10 @@ export async function generateMealPlan(
     });
 
     console.log("[MealPlan] Inserting", itemValues.length, "meal items…");
-    const insertedItems = await db.insert(mealPlanItems).values(itemValues).returning();
+    const insertedItems = await tx.insert(mealPlanItems).values(itemValues).returning();
     console.log("[MealPlan] Items inserted:", insertedItems.length);
 
-    await db
+    await tx
       .update(mealPlans)
       .set({
         totalEstimatedCost: totalCost > 0 ? String(totalCost) : null,
@@ -624,6 +626,9 @@ export async function generateMealPlan(
       })
       .where(eq(mealPlans.id, plan.id));
     console.log("[MealPlan] Plan updated with totals");
+
+    return { plan, insertedItems };
+    }); // end db.transaction()
 
     const hydratedItems = await hydrateItems(insertedItems);
     console.log("[MealPlan] Hydration complete");

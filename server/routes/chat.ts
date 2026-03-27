@@ -5,6 +5,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rateLimit.js";
 import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 import { processMessage, getRecentSessions } from "../services/chatbot.js";
+import { trackFeature } from "../services/featureTracking.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -19,8 +20,27 @@ const chatMessageSchema = z.object({
     memberId: z.string().uuid().optional(),
 });
 
-// POST /api/v1/chat — send a message
-// Household: pass memberId in body to personalize for a specific household member
+/**
+ * @openapi
+ * /chat:
+ *   post:
+ *     tags: [Chat]
+ *     summary: Send a chat message to the AI nutrition assistant
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [message]
+ *             properties:
+ *               message: { type: string, minLength: 1, maxLength: 500 }
+ *               sessionId: { type: string, format: uuid }
+ *               memberId: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: AI response }
+ *       401: { description: Unauthorized }
+ */
 router.post(
     "/",
     rateLimitMiddleware,
@@ -29,6 +49,7 @@ router.post(
             const customerId = b2cId(req);
             const { message, sessionId, memberId } = chatMessageSchema.parse(req.body);
             const response = await processMessage(customerId, message.trim(), sessionId, memberId);
+            trackFeature(customerId, "chatbot", "message");
             res.json(response);
         } catch (err) {
             next(err);
@@ -36,7 +57,15 @@ router.post(
     }
 );
 
-// GET /api/v1/chat/history — recent sessions
+/**
+ * @openapi
+ * /chat/history:
+ *   get:
+ *     tags: [Chat]
+ *     summary: Get recent chat sessions
+ *     responses:
+ *       200: { description: List of recent chat sessions }
+ */
 router.get(
     "/history",
     rateLimitMiddleware,

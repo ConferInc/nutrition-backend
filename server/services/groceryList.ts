@@ -658,6 +658,14 @@ export async function getGroceryListDetail(b2cCustomerId: string, listId: string
   };
 }
 
+// B2C-022: Update last_active_at on any user interaction
+async function touchLastActive(listId: string): Promise<void> {
+  await db
+    .update(shoppingLists)
+    .set({ lastActiveAt: new Date() })
+    .where(eq(shoppingLists.id, listId));
+}
+
 export async function updateGroceryListStatus(
   b2cCustomerId: string,
   listId: string,
@@ -678,7 +686,7 @@ export async function updateGroceryListStatus(
   if (status === "purchased") {
     const rows = await db
       .update(shoppingLists)
-      .set({ status: "purchased" })
+      .set({ status: "purchased", completedAt: new Date(), lastActiveAt: new Date() }) // B2C-023 + B2C-022
       .where(eq(shoppingLists.id, list.id))
       .returning();
     return { list: rows[0] ?? list };
@@ -701,7 +709,7 @@ export async function updateGroceryListStatus(
 
     const rows = await tx
       .update(shoppingLists)
-      .set({ status: "active" })
+      .set({ status: "active", completedAt: null, lastActiveAt: new Date() }) // B2C-023: clear on reopen, B2C-022
       .where(eq(shoppingLists.id, list.id))
       .returning();
 
@@ -766,6 +774,7 @@ export async function updateGroceryListItem(
 
   const estimatedTotal = await recalculateEstimatedTotal(listId);
   const { summary } = await listItemsWithSummary(listId);
+  await touchLastActive(listId); // B2C-022
 
   return {
     item: updatedRows[0],
@@ -797,6 +806,7 @@ export async function addGroceryListItem(
 
   const estimatedTotal = await recalculateEstimatedTotal(listId);
   const { summary } = await listItemsWithSummary(listId);
+  await touchLastActive(listId); // B2C-022
 
   return {
     item: rows[0],
@@ -820,6 +830,7 @@ export async function deleteGroceryListItem(
 
   const estimatedTotal = await recalculateEstimatedTotal(listId);
   const { summary } = await listItemsWithSummary(listId);
+  await touchLastActive(listId); // B2C-022
 
   return { success: true, estimatedTotal, summary };
 }
