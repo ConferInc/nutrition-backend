@@ -562,72 +562,72 @@ export async function generateMealPlan(
     console.log("[MealPlan] Inserting meal plan into DB…");
     // B2C-038: Wrap all writes in a transaction to prevent orphaned plan rows
     const { plan, insertedItems } = await db.transaction(async (tx) => {
-    const planRows = await tx
-      .insert(mealPlans)
-      .values({
-        householdId: household.id,
-        b2cCustomerId,
-        planName: buildPlanName({
+      const planRows = await tx
+        .insert(mealPlans)
+        .values({
+          householdId: household.id,
+          b2cCustomerId,
+          planName: buildPlanName({
+            startDate: input.startDate,
+            endDate: input.endDate,
+            preferences: input.preferences,
+            budgetAmount: input.budgetAmount,
+            memberDiets: allMemberDiets,
+          }),
           startDate: input.startDate,
           endDate: input.endDate,
-          preferences: input.preferences,
-          budgetAmount: input.budgetAmount,
-          memberDiets: allMemberDiets,
-        }),
-        startDate: input.startDate,
-        endDate: input.endDate,
-        status: "draft",
-        mealsPerDay: input.mealsPerDay,
-        generationParams: llmContext as any,
-        aiModel: getLLMModelName(),
-        budgetAmount: input.budgetAmount ? String(input.budgetAmount) : null,
-        budgetCurrency: input.budgetCurrency ?? "USD",
-        memberIds: input.memberIds,
-        generationTimeMs,
-      })
-      .returning();
+          status: "draft",
+          mealsPerDay: input.mealsPerDay,
+          generationParams: llmContext as any,
+          aiModel: getLLMModelName(),
+          budgetAmount: input.budgetAmount ? String(input.budgetAmount) : null,
+          budgetCurrency: input.budgetCurrency ?? "USD",
+          memberIds: input.memberIds,
+          generationTimeMs,
+        })
+        .returning();
 
-    const plan = planRows[0];
-    console.log("[MealPlan] Plan inserted:", plan.id);
+      const plan = planRows[0];
+      console.log("[MealPlan] Plan inserted:", plan.id);
 
-    const itemValues = validatedMeals.map((meal) => {
-      const nutrition = nutritionSnapshots.get(meal.recipeId);
-      if (!nutrition) {
-        console.error("[MealPlan] Missing nutrition for recipeId:", meal.recipeId);
-      }
-      const safeNutrition = nutrition || { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sugarG: 0, sodiumMg: 0 };
-      const cost = meal.estimatedCost ?? null;
-      if (cost) totalCost += cost;
-      totalCalories += safeNutrition.calories * (meal.servings || 1);
+      const itemValues = validatedMeals.map((meal) => {
+        const nutrition = nutritionSnapshots.get(meal.recipeId);
+        if (!nutrition) {
+          console.error("[MealPlan] Missing nutrition for recipeId:", meal.recipeId);
+        }
+        const safeNutrition = nutrition || { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sugarG: 0, sodiumMg: 0 };
+        const cost = meal.estimatedCost ?? null;
+        if (cost) totalCost += cost;
+        totalCalories += safeNutrition.calories * (meal.servings || 1);
 
-      return {
-        mealPlanId: plan.id,
-        recipeId: meal.recipeId,
-        mealDate: meal.date,
-        mealType: meal.mealType,
-        servings: meal.servings || 1,
-        forMemberIds: input.memberIds,
-        estimatedCost: cost ? String(cost) : null,
-        caloriesPerServing: safeNutrition.calories,
-        status: "planned" as const,
-        nutritionSnapshot: safeNutrition as any,
-      };
-    });
+        return {
+          mealPlanId: plan.id,
+          recipeId: meal.recipeId,
+          mealDate: meal.date,
+          mealType: meal.mealType,
+          servings: meal.servings || 1,
+          forMemberIds: input.memberIds,
+          estimatedCost: cost ? String(cost) : null,
+          caloriesPerServing: safeNutrition.calories,
+          status: "planned" as const,
+          nutritionSnapshot: safeNutrition as any,
+        };
+      });
 
-    console.log("[MealPlan] Inserting", itemValues.length, "meal items…");
-    const insertedItems = await tx.insert(mealPlanItems).values(itemValues).returning();
-    console.log("[MealPlan] Items inserted:", insertedItems.length);
+      console.log("[MealPlan] Inserting", itemValues.length, "meal items…");
+      const insertedItems = await tx.insert(mealPlanItems).values(itemValues).returning();
+      console.log("[MealPlan] Items inserted:", insertedItems.length);
 
-    await tx
-      .update(mealPlans)
-      .set({
-        totalEstimatedCost: totalCost > 0 ? String(totalCost) : null,
-        totalCalories,
-      })
-      .where(eq(mealPlans.id, plan.id));
-    console.log("[MealPlan] Plan updated with totals");
+      await tx
+        .update(mealPlans)
+        .set({
+          totalEstimatedCost: totalCost > 0 ? String(totalCost) : null,
+          totalCalories,
+        })
+        .where(eq(mealPlans.id, plan.id));
+      console.log("[MealPlan] Plan updated with totals");
 
-    return { plan, insertedItems };
+      return { plan, insertedItems };
     }); // end db.transaction()
 
     const hydratedItems = await hydrateItems(insertedItems);
