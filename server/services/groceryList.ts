@@ -83,6 +83,7 @@ interface GroceryListItemDetail {
   currentProductId: string | null;
   currentProductName: string | null;
   currentProductBrand: string | null;
+  currentProductUrl: string | null;
 }
 
 function n(value: number | string | null | undefined): number {
@@ -416,12 +417,12 @@ async function listItemsWithSummary(listId: string) {
   const productRows = currentProductIds.length
     ? ((await executeRaw(
       `
-      SELECT id, name, brand
+      SELECT id, name, brand, product_url
       FROM gold.products
       WHERE id = ANY($1::uuid[])
       `,
       [currentProductIds]
-    )) as unknown as { id: string; name: string | null; brand: string | null }[])
+    )) as unknown as { id: string; name: string | null; brand: string | null; product_url: string | null }[])
     : [];
 
   const productMap = new Map(productRows.map((row) => [row.id, row]));
@@ -434,6 +435,7 @@ async function listItemsWithSummary(listId: string) {
       currentProductId,
       currentProductName: product?.name ?? null,
       currentProductBrand: product?.brand ?? null,
+      currentProductUrl: product?.product_url ?? null,
     };
   });
 
