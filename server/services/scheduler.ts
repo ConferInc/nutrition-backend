@@ -20,7 +20,7 @@ async function runNotificationBatch(): Promise<void> {
       `SELECT DISTINCT c.id
        FROM gold.b2c_customers c
        JOIN gold.b2c_session_events se
-         ON se.customer_id = c.id
+          ON se.b2c_customer_id = c.id
          AND se.created_at > NOW() - INTERVAL '7 days'
        ORDER BY c.id
        LIMIT $1`,

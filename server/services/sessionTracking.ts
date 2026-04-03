@@ -46,7 +46,7 @@ function parseUserAgent(ua: string | undefined): UAInfo {
   if (/Windows NT 10/i.test(ua)) os = "Windows 10/11";
   else if (/Windows NT/i.test(ua)) os = "Windows";
   else if (/Mac OS X (\d+[._]\d+)/i.test(ua)) {
-    const ver = ua.match(/Mac OS X (\d+[._]\d+)/i)?.[1]?.replace("_", ".");
+    const ver = ua.match(/Mac OS X (\d+[._]\d+)/i)?.[1]?.replace(/_/g, ".");
     os = `macOS ${ver}`;
   } else if (/iPhone OS (\d+)/i.test(ua)) {
     os = `iOS ${ua.match(/iPhone OS (\d+)/i)?.[1]}`;

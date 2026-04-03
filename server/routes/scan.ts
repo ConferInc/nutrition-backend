@@ -20,12 +20,14 @@ function b2cId(req: Request): string {
 
 const lookupSchema = z.object({
   barcode: z.string().min(1).max(50),
+  memberId: z.string().uuid().optional(),
 });
 
 const saveHistorySchema = z.object({
   barcode: z.string().min(1).max(50),
-  productName: z.string().max(500).optional(),
-  productData: z.record(z.any()).optional(),
+  productId: z.string().uuid().optional(),
+  barcodeFormat: z.string().max(30).optional(),
+  scanSource: z.string().max(30).optional(),
 });
 
 /**
@@ -43,6 +45,7 @@ const saveHistorySchema = z.object({
  *             required: [barcode]
  *             properties:
  *               barcode: { type: string, minLength: 1, maxLength: 50 }
+ *               memberId: { type: string, format: uuid }
  *     responses:
  *       200: { description: Product data }
  *       404: { description: Product not found }
@@ -53,8 +56,8 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const customerId = b2cId(req);
-      const { barcode } = lookupSchema.parse(req.body);
-      const result = await lookupProductByBarcode(barcode);
+      const { barcode, memberId } = lookupSchema.parse(req.body);
+      const result = await lookupProductByBarcode(barcode, customerId, memberId);
       trackFeature(customerId, "scan", "lookup");
       res.json(result);
     } catch (err) {
@@ -90,7 +93,13 @@ router.post(
     try {
       const customerId = b2cId(req);
       const parsed = saveHistorySchema.parse(req.body);
-      const result = await saveScanHistory(customerId, parsed);
+      const result = await saveScanHistory({
+        b2cCustomerId: customerId,
+        barcode: parsed.barcode,
+        productId: parsed.productId,
+        barcodeFormat: parsed.barcodeFormat,
+        scanSource: parsed.scanSource,
+      });
       trackFeature(customerId, "scan", "save_history");
       res.status(201).json(result);
     } catch (err) {
