@@ -5,6 +5,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rateLimit.js";
 import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 import { AppError } from "../middleware/errorHandler.js";
+import { trackFeature } from "../services/featureTracking.js";
 import {
   getDailyLog,
   addMealItem,
@@ -108,6 +109,23 @@ const memberQuerySchema = z.object({
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
+/**
+ * @openapi
+ * /meal-log:
+ *   get:
+ *     tags: [Meal Log]
+ *     summary: Get daily meal log
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema: { type: string, format: date }
+ *         description: Defaults to today
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Daily log with meals and nutrition totals }
+ */
 // GET /api/v1/meal-log?date=YYYY-MM-DD&memberId=xxx
 router.get(
   "/",
@@ -130,6 +148,32 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/items:
+ *   post:
+ *     tags: [Meal Log]
+ *     summary: Add a meal item
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [date, mealType]
+ *             properties:
+ *               date: { type: string, format: date }
+ *               memberId: { type: string, format: uuid }
+ *               mealType: { type: string, enum: [breakfast, lunch, dinner, snack] }
+ *               recipeId: { type: string, format: uuid }
+ *               productId: { type: string, format: uuid }
+ *               customName: { type: string }
+ *               servings: { type: number, default: 1 }
+ *               source: { type: string, enum: [manual, recipe, scan, quick_add, copy, cooking_mode] }
+ *               nutrition: { type: object }
+ *     responses:
+ *       201: { description: Item added }
+ */
 // POST /api/v1/meal-log/items
 router.post(
   "/items",
@@ -139,6 +183,7 @@ router.post(
       const customerId = b2cId(req);
       const parsed = addItemSchema.parse(req.body);
       const result = await addMealItem(customerId, parsed);
+      trackFeature(customerId, "meal_log", "add_item", { source: parsed.source });
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -146,6 +191,33 @@ router.post(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/items/{id}:
+ *   put:
+ *     tags: [Meal Log]
+ *     summary: Update a meal item
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               servings: { type: number }
+ *               mealType: { type: string }
+ *               notes: { type: string }
+ *     responses:
+ *       200: { description: Item updated }
+ */
 // PUT /api/v1/meal-log/items/:id
 router.put(
   "/items/:id",
@@ -163,6 +235,23 @@ router.put(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/items/{id}:
+ *   delete:
+ *     tags: [Meal Log]
+ *     summary: Delete a meal item
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Item deleted }
+ */
 // DELETE /api/v1/meal-log/items/:id
 router.delete(
   "/items/:id",
@@ -179,6 +268,26 @@ router.delete(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/water:
+ *   post:
+ *     tags: [Meal Log]
+ *     summary: Update water intake
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [date, amount_ml]
+ *             properties:
+ *               date: { type: string, format: date }
+ *               memberId: { type: string, format: uuid }
+ *               amount_ml: { type: integer }
+ *     responses:
+ *       200: { description: Water intake updated }
+ */
 // POST /api/v1/meal-log/water
 router.post(
   "/water",
@@ -188,6 +297,7 @@ router.post(
       const customerId = b2cId(req);
       const parsed = waterSchema.parse(req.body);
       const result = await updateWaterIntake(customerId, parsed.date, parsed.amount_ml, parsed.memberId);
+      trackFeature(customerId, "meal_log", "water", { amount_ml: parsed.amount_ml });
       res.json(result);
     } catch (err) {
       next(err);
@@ -195,6 +305,26 @@ router.post(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/copy-day:
+ *   post:
+ *     tags: [Meal Log]
+ *     summary: Copy meals from one day to another
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [sourceDate, targetDate]
+ *             properties:
+ *               sourceDate: { type: string, format: date }
+ *               targetDate: { type: string, format: date }
+ *               memberId: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Day copied }
+ */
 // POST /api/v1/meal-log/copy-day
 router.post(
   "/copy-day",
@@ -211,6 +341,27 @@ router.post(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/history:
+ *   get:
+ *     tags: [Meal Log]
+ *     summary: Get meal log history over a date range
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         required: true
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: endDate
+ *         required: true
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Daily summaries }
+ */
 // GET /api/v1/meal-log/history?startDate=...&endDate=...&memberId=xxx
 router.get(
   "/history",
@@ -234,6 +385,19 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/streak:
+ *   get:
+ *     tags: [Meal Log]
+ *     summary: Get current logging streak
+ *     parameters:
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Streak count }
+ */
 // GET /api/v1/meal-log/streak?memberId=xxx
 router.get(
   "/streak",
@@ -250,6 +414,29 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/from-cooking:
+ *   post:
+ *     tags: [Meal Log]
+ *     summary: Log a meal from cooking mode
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [recipeId, cookingStartedAt, cookingFinishedAt]
+ *             properties:
+ *               recipeId: { type: string, format: uuid }
+ *               memberId: { type: string, format: uuid }
+ *               servings: { type: number, default: 1 }
+ *               mealType: { type: string }
+ *               cookingStartedAt: { type: string, format: date-time }
+ *               cookingFinishedAt: { type: string, format: date-time }
+ *     responses:
+ *       201: { description: Meal logged from cooking }
+ */
 // POST /api/v1/meal-log/from-cooking
 router.post(
   "/from-cooking",
@@ -259,6 +446,7 @@ router.post(
       const customerId = b2cId(req);
       const parsed = cookingLogSchema.parse(req.body);
       const result = await logFromCooking(customerId, parsed);
+      trackFeature(customerId, "meal_log", "from_cooking");
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -266,6 +454,19 @@ router.post(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/templates:
+ *   get:
+ *     tags: [Meal Log]
+ *     summary: Get meal templates
+ *     parameters:
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: List of templates }
+ */
 // GET /api/v1/meal-log/templates?memberId=xxx
 router.get(
   "/templates",
@@ -282,6 +483,27 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/templates:
+ *   post:
+ *     tags: [Meal Log]
+ *     summary: Create a meal template
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, items]
+ *             properties:
+ *               name: { type: string, maxLength: 255 }
+ *               memberId: { type: string, format: uuid }
+ *               mealType: { type: string }
+ *               items: { type: array, items: { type: object }, minItems: 1 }
+ *     responses:
+ *       201: { description: Template created }
+ */
 // POST /api/v1/meal-log/templates
 router.post(
   "/templates",
@@ -298,6 +520,22 @@ router.post(
   }
 );
 
+/**
+ * @openapi
+ * /meal-log/patterns:
+ *   get:
+ *     tags: [Meal Log]
+ *     summary: Get meal patterns analysis
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema: { type: integer, default: 14 }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Meal pattern analysis }
+ */
 // GET /api/v1/meal-log/patterns?days=14&memberId=xxx (PRD-15)
 router.get(
   "/patterns",

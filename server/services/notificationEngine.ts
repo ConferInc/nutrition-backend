@@ -5,11 +5,12 @@
 import { executeRaw } from "../config/database.js";
 import { createNotification } from "./notifications.js";
 import { getStreak } from "./mealLog.js";
+import { ragNotifications } from "./ragClient.js";
 
 // ── PRD-32: Configurable Daily Cap ───────────────────────────────────────────
 
 const MAX_DAILY_NOTIFICATIONS = parseInt(
-    process.env.MAX_DAILY_NOTIFICATIONS ?? "2",
+    process.env.MAX_DAILY_NOTIFICATIONS ?? "4",
     10
 );
 
@@ -611,19 +612,52 @@ export async function evaluateAndDispatchNotifications(
         try {
             const template = FALLBACK_TEMPLATES[type];
 
-            // Customize template body for streak milestones
+            // Start with fallback template values
+            let title = template.title;
             let body = template.body;
+            let icon = template.icon;
+            let actionUrl = template.action_url;
+            let notifType = template.type;
+
+            // Customize fallback body for streak milestones
             if (type === "streak_milestone" && result.context.milestone) {
                 body = `You've logged meals for ${result.context.milestone} days in a row! Keep it going! 🔥`;
             }
 
+            // ── RAG-first: try RAG pipeline for richer content ──
+            try {
+                const ragResult = await ragNotifications({
+                    customer_id: customerId,
+                    trigger_type: type,
+                    meal_log_summary: result.context as Record<string, unknown>,
+                    timezone,
+                });
+
+                if (ragResult) {
+                    title = ragResult.title || title;
+                    body = ragResult.body || body;
+                    icon = ragResult.icon || icon;
+                    actionUrl = ragResult.action_url || actionUrl;
+                    // Validate RAG type against DB constraint (defense-in-depth)
+                    const validTypes = ["meal", "nutrition", "grocery", "budget", "family", "system"] as const;
+                    type ValidType = (typeof validTypes)[number];
+                    notifType = validTypes.includes(ragResult.type as ValidType)
+                        ? (ragResult.type as ValidType)
+                        : template.type;
+                    console.log(`[NotificationEngine] RAG content used for ${type}`);
+                }
+            } catch (ragErr) {
+                // RAG failed — use fallback template (already set above)
+                console.warn(`[NotificationEngine] RAG failed for ${type}, using fallback:`, ragErr);
+            }
+
             const notification = await createNotification({
                 customerId,
-                type: template.type,
-                title: template.title,
+                type: notifType,
+                title,
                 body,
-                icon: template.icon,
-                actionUrl: template.action_url,
+                icon,
+                actionUrl,
             });
 
             await recordDispatch(customerId, type, todayStr, notification.id);

@@ -63,7 +63,23 @@ const updateHealthSchema = z.object({
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
-// GET /api/v1/households/members
+/**
+ * @openapi
+ * /households/members:
+ *   get:
+ *     tags: [Household]
+ *     summary: List household members
+ *     responses:
+ *       200:
+ *         description: Household info and member list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 household: { type: object }
+ *                 members: { type: array, items: { type: object } }
+ */
 router.get(
   "/members",
   rateLimitMiddleware,
@@ -79,7 +95,30 @@ router.get(
   }
 );
 
-// POST /api/v1/households/members
+/**
+ * @openapi
+ * /households/members:
+ *   post:
+ *     tags: [Household]
+ *     summary: Add a family member
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [fullName]
+ *             properties:
+ *               fullName: { type: string, maxLength: 255 }
+ *               firstName: { type: string, maxLength: 100 }
+ *               email: { type: string, format: email }
+ *               dateOfBirth: { type: string, format: date }
+ *               age: { type: integer, minimum: 0, maximum: 120 }
+ *               gender: { type: string, enum: [male, female, other, prefer_not_to_say] }
+ *               householdRole: { type: string, enum: [primary_adult, secondary_adult, child, dependent] }
+ *     responses:
+ *       201: { description: Member added }
+ */
 router.post(
   "/members",
   rateLimitMiddleware,
@@ -97,7 +136,21 @@ router.post(
   }
 );
 
-// GET /api/v1/households/members/:id
+/**
+ * @openapi
+ * /households/members/{id}:
+ *   get:
+ *     tags: [Household]
+ *     summary: Get member detail
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Member detail }
+ *       404: { description: Member not found }
+ */
 router.get(
   "/members/:id",
   rateLimitMiddleware,
@@ -114,7 +167,35 @@ router.get(
   }
 );
 
-// PATCH /api/v1/households/members/:id
+/**
+ * @openapi
+ * /households/members/{id}:
+ *   patch:
+ *     tags: [Household]
+ *     summary: Update member basic info
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fullName: { type: string }
+ *               firstName: { type: string }
+ *               email: { type: string, format: email }
+ *               dateOfBirth: { type: string, format: date }
+ *               age: { type: integer }
+ *               gender: { type: string }
+ *               householdRole: { type: string }
+ *     responses:
+ *       200: { description: Member updated }
+ *       404: { description: Member not found }
+ */
 router.patch(
   "/members/:id",
   rateLimitMiddleware,
@@ -133,7 +214,35 @@ router.patch(
   }
 );
 
-// PATCH /api/v1/households/members/:id/health
+/**
+ * @openapi
+ * /households/members/{id}/health:
+ *   patch:
+ *     tags: [Household]
+ *     summary: Update member health profile
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               targetCalories: { type: integer }
+ *               targetProteinG: { type: number }
+ *               targetCarbsG: { type: number }
+ *               targetFatG: { type: number }
+ *               healthGoal: { type: string }
+ *               allergenIds: { type: array, items: { type: string, format: uuid } }
+ *               dietIds: { type: array, items: { type: string, format: uuid } }
+ *               conditionIds: { type: array, items: { type: string, format: uuid } }
+ *     responses:
+ *       200: { description: Health profile updated }
+ */
 router.patch(
   "/members/:id/health",
   rateLimitMiddleware,
@@ -149,7 +258,20 @@ router.patch(
   }
 );
 
-// DELETE /api/v1/households/members/:id
+/**
+ * @openapi
+ * /households/members/{id}:
+ *   delete:
+ *     tags: [Household]
+ *     summary: Delete a family member
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       204: { description: Member deleted }
+ */
 router.delete(
   "/members/:id",
   rateLimitMiddleware,

@@ -3,6 +3,17 @@ import { checkDatabaseHealth } from "../config/database.js";
 
 const router = Router();
 
+/**
+ * @openapi
+ * /healthz:
+ *   get:
+ *     tags: [Health]
+ *     summary: Liveness probe
+ *     security: []
+ *     responses:
+ *       200: { description: Service healthy }
+ *       503: { description: Service unhealthy }
+ */
 router.get("/healthz", async (req, res) => {
   const dbHealthy = await checkDatabaseHealth();
   
@@ -27,6 +38,17 @@ router.get("/healthz", async (req, res) => {
   }
 });
 
+/**
+ * @openapi
+ * /readyz:
+ *   get:
+ *     tags: [Health]
+ *     summary: Readiness probe
+ *     security: []
+ *     responses:
+ *       200: { description: Service ready }
+ *       503: { description: Service not ready }
+ */
 router.get("/readyz", async (req, res) => {
   // More comprehensive readiness check
   const dbHealthy = await checkDatabaseHealth();

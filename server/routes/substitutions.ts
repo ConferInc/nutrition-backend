@@ -20,7 +20,23 @@ const memberQuerySchema = z.object({
     memberId: z.string().uuid().optional(),
 });
 
-// GET /api/v1/substitutions/ingredient/:ingredientId?memberId=xxx
+/**
+ * @openapi
+ * /substitutions/ingredient/{ingredientId}:
+ *   get:
+ *     tags: [Substitutions]
+ *     summary: Get substitutions for an ingredient
+ *     parameters:
+ *       - in: path
+ *         name: ingredientId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: List of ingredient substitutions }
+ */
 router.get(
     "/ingredient/:ingredientId",
     rateLimitMiddleware,
@@ -37,7 +53,23 @@ router.get(
     }
 );
 
-// GET /api/v1/substitutions/product/:productId?memberId=xxx
+/**
+ * @openapi
+ * /substitutions/product/{productId}:
+ *   get:
+ *     tags: [Substitutions]
+ *     summary: Get substitutions for a product
+ *     parameters:
+ *       - in: path
+ *         name: productId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: List of product substitutions }
+ */
 router.get(
     "/product/:productId",
     rateLimitMiddleware,

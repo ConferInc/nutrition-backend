@@ -66,6 +66,16 @@ if (process.env.NODE_ENV === 'development') {
 }
 router.use(rateLimitMiddleware);
 
+/**
+ * @openapi
+ * /admin/dashboard:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get admin dashboard stats
+ *     responses:
+ *       200: { description: Dashboard statistics }
+ *       403: { description: Admin access required }
+ */
 // Dashboard
 router.get("/dashboard", async (req, res, next) => {
   try {
@@ -76,6 +86,21 @@ router.get("/dashboard", async (req, res, next) => {
   }
 });
 
+/**
+ * @openapi
+ * /admin/recipes:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a curated recipe
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       201: { description: Recipe created }
+ */
 // Curated recipe management
 router.post("/recipes", auditedRoute(async (req, res, next) => {
   try {
@@ -87,6 +112,20 @@ router.post("/recipes", auditedRoute(async (req, res, next) => {
   }
 }));
 
+/**
+ * @openapi
+ * /admin/recipes/{id}:
+ *   put:
+ *     tags: [Admin]
+ *     summary: Update a curated recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Recipe updated }
+ */
 router.put("/recipes/:id", auditedRoute(async (req, res, next) => {
   try {
     const updates = insertRecipeSchema.partial().parse(req.body);
@@ -97,6 +136,21 @@ router.put("/recipes/:id", auditedRoute(async (req, res, next) => {
   }
 }));
 
+/**
+ * @openapi
+ * /admin/recipes/{id}:
+ *   delete:
+ *     tags: [Admin]
+ *     summary: Delete a curated recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Recipe deleted }
+ *       400: { description: Reason required }
+ */
 router.delete("/recipes/:id", auditedRoute(async (req, res, next) => {
   try {
     const { reason } = req.body;
@@ -117,6 +171,20 @@ router.delete("/recipes/:id", auditedRoute(async (req, res, next) => {
   }
 }));
 
+/**
+ * @openapi
+ * /admin/user-recipes/{id}/approve:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Approve a user recipe (not implemented)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       501: { description: Not implemented }
+ */
 // User content moderation
 router.post("/user-recipes/:id/approve", auditedRoute(async (req, res, next) => {
   try {
@@ -126,6 +194,20 @@ router.post("/user-recipes/:id/approve", auditedRoute(async (req, res, next) => 
   }
 }));
 
+/**
+ * @openapi
+ * /admin/user-recipes/{id}/reject:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Reject a user recipe (not implemented)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       501: { description: Not implemented }
+ */
 router.post("/user-recipes/:id/reject", auditedRoute(async (req, res, next) => {
   try {
     res.status(501).json({ error: "User recipe moderation is not supported in the gold schema." });
@@ -134,6 +216,15 @@ router.post("/user-recipes/:id/reject", auditedRoute(async (req, res, next) => {
   }
 }));
 
+/**
+ * @openapi
+ * /admin/reports:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get moderation reports (not implemented)
+ *     responses:
+ *       501: { description: Not implemented }
+ */
 // Reports and moderation
 router.get("/reports", async (req, res, next) => {
   try {
@@ -143,6 +234,20 @@ router.get("/reports", async (req, res, next) => {
   }
 });
 
+/**
+ * @openapi
+ * /admin/reports/{id}/resolve:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Resolve a report (not implemented)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       501: { description: Not implemented }
+ */
 router.post("/reports/:id/resolve", auditedRoute(async (req, res, next) => {
   try {
     res.status(501).json({ error: "Report resolution is not supported in the gold schema." });
@@ -151,6 +256,25 @@ router.post("/reports/:id/resolve", auditedRoute(async (req, res, next) => {
   }
 }));
 
+/**
+ * @openapi
+ * /admin/audit:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get audit logs
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 100 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *       - in: query
+ *         name: actor_user_id
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Paginated audit logs }
+ */
 // Audit logs
 router.get("/audit", async (req, res, next) => {
   try {
@@ -165,6 +289,15 @@ router.get("/audit", async (req, res, next) => {
   }
 });
 
+/**
+ * @openapi
+ * /admin/refresh-materialized-views:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Refresh materialized views (not implemented)
+ *     responses:
+ *       501: { description: Not implemented }
+ */
 // System operations
 router.post("/refresh-materialized-views", auditedRoute(async (req, res, next) => {
   try {
@@ -174,6 +307,15 @@ router.post("/refresh-materialized-views", auditedRoute(async (req, res, next) =
   }
 }));
 
+/**
+ * @openapi
+ * /admin/rag-status:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get RAG circuit breaker status
+ *     responses:
+ *       200: { description: Circuit breaker state }
+ */
 // RAG circuit breaker diagnostics (PRD-09)
 router.get("/rag-status", async (req, res, next) => {
   try {

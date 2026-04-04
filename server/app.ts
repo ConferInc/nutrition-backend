@@ -1,7 +1,10 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./config/swagger.js";
 import { registerRoutes } from "./routes.js"; // your existing router
+import { initScheduler } from "./services/scheduler.js"; // B2C-001
 
 const app = express();
 
@@ -90,6 +93,18 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true }));
 
+// B2C-027: Swagger UI (non-production only)
+if (process.env.NODE_ENV !== "production") {
+  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customCss: ".swagger-ui .topbar { display: none }",
+    customSiteTitle: "Nutri B2C API Docs",
+  }));
+}
+// Always expose raw spec for tooling (code generators, Postman import)
+app.get("/api-docs.json", (_req, res) => res.json(swaggerSpec));
+
+
 registerRoutes(app); // must include GET /feed
+initScheduler(); // B2C-001: notification cron (opt-in via NOTIFICATION_CRON_ENABLED)
 
 export default app;

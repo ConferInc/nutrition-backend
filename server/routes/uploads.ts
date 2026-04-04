@@ -21,12 +21,32 @@ const upload = multer({
 const router = Router();
 
 /**
- * POST /api/v1/uploads/recipe-image
- * Uploads a recipe cover image to Supabase Storage.
- * Body: multipart/form-data { file, recipeId? }
- * Returns: { url: string }
- *
- * Folder structure: recipe-images/{customerId}/{recipeId}/image.webp
+ * @openapi
+ * /uploads/recipe-image:
+ *   post:
+ *     tags: [Uploads]
+ *     summary: Upload a recipe cover image
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file: { type: string, format: binary, description: JPEG/PNG/WebP max 5MB }
+ *               recipeId: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Image uploaded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 url: { type: string, format: uri }
+ *                 recipeId: { type: string, format: uuid }
+ *       400: { description: No file uploaded or invalid format }
  */
 router.post(
     "/recipe-image",
@@ -56,8 +76,18 @@ router.post(
 );
 
 /**
- * DELETE /api/v1/uploads/recipe-image/:recipeId
- * Deletes the recipe image from Supabase Storage.
+ * @openapi
+ * /uploads/recipe-image/{recipeId}:
+ *   delete:
+ *     tags: [Uploads]
+ *     summary: Delete a recipe image
+ *     parameters:
+ *       - in: path
+ *         name: recipeId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       204: { description: Image deleted }
  */
 router.delete(
     "/recipe-image/:recipeId",

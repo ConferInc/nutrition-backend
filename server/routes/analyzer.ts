@@ -1,8 +1,7 @@
-// server/routes/analyzer.ts
-// API routes for recipe analyzer: text, URL, image, barcode analysis
-
 import { Router } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import multer from "multer";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rateLimit.js";
 import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
@@ -12,88 +11,103 @@ import {
   analyzeImage,
   analyzeBarcode,
   saveAnalyzedRecipe,
-  type AnalyzeResult,
 } from "../services/analyzer.js";
-import multer from "multer";
+import { trackFeature } from "../services/featureTracking.js";
 
 const router = Router();
+router.use(authMiddleware);
 
-// Configure multer for image uploads (Phase 2)
+// Multer config for image upload — matches pattern in uploads.ts
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error("Only JPEG, PNG, and WebP images are allowed"));
+  },
 });
 
-function b2cCustomerId(req: any): string {
+function b2cId(req: Request): string {
   return requireB2cCustomerIdFromReq(req);
 }
 
-// ─── Validation Schemas ───────────────────────────────────────────────────────
-
-const textAnalysisSchema = z.object({
-  text: z.string().min(3).max(50000), // Reduced min from 10 to 3 to allow short recipe names
+// Validation schemas
+const textSchema = z.object({
+  text: z.string().min(1).max(5000),
   memberId: z.string().uuid().optional(),
 });
 
-const urlAnalysisSchema = z.object({
-  url: z.string().url(),
+const urlSchema = z.object({
+  url: z.string().url().max(2000),
   memberId: z.string().uuid().optional(),
 });
 
-const barcodeAnalysisSchema = z.object({
-  barcode: z.string().min(4).max(30),
+const barcodeSchema = z.object({
+  barcode: z.string().min(1).max(50),
   memberId: z.string().uuid().optional(),
 });
 
-const saveRecipeSchema = z.object({
-  result: z.custom<AnalyzeResult>(),
-});
-
-// ─── POST /api/v1/analyzer/text ───────────────────────────────────────────────
-// Analyze pasted recipe text
-
+/**
+ * @openapi
+ * /analyzer/text:
+ *   post:
+ *     tags: [Analyzer]
+ *     summary: Analyze recipe from plain text
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [text]
+ *             properties:
+ *               text: { type: string, minLength: 1, maxLength: 5000 }
+ *     responses:
+ *       200: { description: Analyzed recipe data }
+ */
 router.post(
   "/text",
-  authMiddleware,
   rateLimitMiddleware,
-  async (req, res, next) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const b2cId = b2cCustomerId(req);
-      const body = textAnalysisSchema.parse(req.body ?? {});
-
-      console.log("[Analyzer] Text analysis request:", { textLength: body.text.length, hasMemberId: !!body.memberId });
-
-      const result = await analyzeText(body.text, b2cId, body.memberId);
-
-      console.log("[Analyzer] Text analysis success:", { title: result.title, ingredientsCount: result.ingredients?.length || 0 });
-
-      res.on("close", () => {
-        console.log("[Analyzer] Response stream closed, writableFinished:", res.writableFinished);
-      });
-
+      const customerId = b2cId(req);
+      const { text, memberId } = textSchema.parse(req.body);
+      const result = await analyzeText(text, customerId, memberId);
+      trackFeature(customerId, "analyzer", "text");
       res.json(result);
-      console.log("[Analyzer] res.json() called, headersSent:", res.headersSent);
-    } catch (err: any) {
-      console.error("[Analyzer] Text analysis error:", err?.message || err, err?.stack);
+    } catch (err) {
       next(err);
     }
   }
 );
 
-// ─── POST /api/v1/analyzer/url ────────────────────────────────────────────────
-// Scrape URL and analyze recipe
-
+/**
+ * @openapi
+ * /analyzer/url:
+ *   post:
+ *     tags: [Analyzer]
+ *     summary: Analyze recipe from URL
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [url]
+ *             properties:
+ *               url: { type: string, format: uri, maxLength: 2000 }
+ *     responses:
+ *       200: { description: Analyzed recipe data }
+ */
 router.post(
   "/url",
-  authMiddleware,
   rateLimitMiddleware,
-  async (req, res, next) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const b2cId = b2cCustomerId(req);
-      const body = urlAnalysisSchema.parse(req.body ?? {});
-
-      const result = await analyzeUrl(body.url, b2cId, body.memberId);
-
+      const customerId = b2cId(req);
+      const { url, memberId } = urlSchema.parse(req.body);
+      const result = await analyzeUrl(url, customerId, memberId);
+      trackFeature(customerId, "analyzer", "url");
       res.json(result);
     } catch (err) {
       next(err);
@@ -101,27 +115,37 @@ router.post(
   }
 );
 
-// ─── POST /api/v1/analyzer/image ──────────────────────────────────────────────
-// OCR image and analyze recipe (Phase 2)
-
+/**
+ * @openapi
+ * /analyzer/image:
+ *   post:
+ *     tags: [Analyzer]
+ *     summary: Analyze recipe from image
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file: { type: string, format: binary }
+ *     responses:
+ *       200: { description: Analyzed recipe data }
+ */
 router.post(
   "/image",
-  authMiddleware,
   rateLimitMiddleware,
   upload.single("image"),
-  async (req, res, next) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const b2cId = b2cCustomerId(req);
-      const file = (req as any).file;
-
-      if (!file) {
-        return res.status(400).json({ error: "No image file provided" });
+      const customerId = b2cId(req);
+      if (!req.file) {
+        return res.status(400).json({ error: "No image file uploaded" });
       }
-
       const memberId = req.body?.memberId;
-
-      const result = await analyzeImage(file.buffer, b2cId, memberId);
-
+      const result = await analyzeImage(req.file.buffer, customerId, memberId);
+      trackFeature(customerId, "analyzer", "image");
       res.json(result);
     } catch (err) {
       next(err);
@@ -129,20 +153,33 @@ router.post(
   }
 );
 
-// ─── POST /api/v1/analyzer/barcode ───────────────────────────────────────────
-// Look up product by barcode, then LLM-analyze
-
+/**
+ * @openapi
+ * /analyzer/barcode:
+ *   post:
+ *     tags: [Analyzer]
+ *     summary: Analyze product from barcode
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [barcode]
+ *             properties:
+ *               barcode: { type: string, minLength: 1, maxLength: 50 }
+ *     responses:
+ *       200: { description: Analyzed product data }
+ */
 router.post(
   "/barcode",
-  authMiddleware,
   rateLimitMiddleware,
-  async (req, res, next) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const b2cId = b2cCustomerId(req);
-      const body = barcodeAnalysisSchema.parse(req.body ?? {});
-
-      const result = await analyzeBarcode(body.barcode, b2cId, body.memberId);
-
+      const customerId = b2cId(req);
+      const { barcode, memberId } = barcodeSchema.parse(req.body);
+      const result = await analyzeBarcode(barcode, customerId, memberId);
+      trackFeature(customerId, "analyzer", "barcode");
       res.json(result);
     } catch (err) {
       next(err);
@@ -150,21 +187,31 @@ router.post(
   }
 );
 
-// ─── POST /api/v1/analyzer/save ──────────────────────────────────────────────
-// Save analyzed recipe to user's collection
-
+/**
+ * @openapi
+ * /analyzer/save:
+ *   post:
+ *     tags: [Analyzer]
+ *     summary: Save an analyzed recipe to the gold schema
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             description: Full analyzed recipe payload
+ *     responses:
+ *       201: { description: Recipe saved }
+ */
 router.post(
   "/save",
-  authMiddleware,
   rateLimitMiddleware,
-  async (req, res, next) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const b2cId = b2cCustomerId(req);
-      const body = saveRecipeSchema.parse(req.body ?? {});
-
-      const saved = await saveAnalyzedRecipe(body.result, b2cId);
-
-      res.status(201).json(saved);
+      const customerId = b2cId(req);
+      const result = await saveAnalyzedRecipe(req.body, customerId);
+      trackFeature(customerId, "analyzer", "save");
+      res.status(201).json(result);
     } catch (err) {
       next(err);
     }

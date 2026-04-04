@@ -64,6 +64,22 @@ const recommendationsQuerySchema = z.object({
   budgetType: budgetTypeEnum.default("grocery"),
 });
 
+/**
+ * @openapi
+ * /budgets:
+ *   get:
+ *     tags: [Budget]
+ *     summary: Get budget snapshot
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema: { type: string, enum: [weekly, monthly], default: weekly }
+ *       - in: query
+ *         name: budgetType
+ *         schema: { type: string, enum: [grocery], default: grocery }
+ *     responses:
+ *       200: { description: Current budget status }
+ */
 router.get(
   "/",
   rateLimitMiddleware,
@@ -79,6 +95,29 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /budgets:
+ *   post:
+ *     tags: [Budget]
+ *     summary: Create or replace active budget
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount, period]
+ *             properties:
+ *               amount: { type: number }
+ *               period: { type: string, enum: [weekly, monthly] }
+ *               budgetType: { type: string, default: grocery }
+ *               currency: { type: string, default: USD }
+ *               startDate: { type: string, format: date }
+ *               endDate: { type: string, format: date }
+ *     responses:
+ *       201: { description: Budget created }
+ */
 router.post(
   "/",
   rateLimitMiddleware,
@@ -94,6 +133,25 @@ router.post(
   }
 );
 
+/**
+ * @openapi
+ * /budgets/trends:
+ *   get:
+ *     tags: [Budget]
+ *     summary: Get budget spending trends
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema: { type: string, enum: [weekly, monthly] }
+ *       - in: query
+ *         name: budgetType
+ *         schema: { type: string, enum: [grocery] }
+ *       - in: query
+ *         name: points
+ *         schema: { type: integer, default: 12, maximum: 52 }
+ *     responses:
+ *       200: { description: Spending trend data }
+ */
 router.get(
   "/trends",
   rateLimitMiddleware,
@@ -109,6 +167,22 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /budgets/recommendations:
+ *   get:
+ *     tags: [Budget]
+ *     summary: Get budget recommendations
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema: { type: string, enum: [weekly, monthly] }
+ *       - in: query
+ *         name: budgetType
+ *         schema: { type: string, enum: [grocery] }
+ *     responses:
+ *       200: { description: Budget optimization recommendations }
+ */
 router.get(
   "/recommendations",
   rateLimitMiddleware,
@@ -124,6 +198,31 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /budgets/{id}:
+ *   put:
+ *     tags: [Budget]
+ *     summary: Update a budget
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               amount: { type: number }
+ *               period: { type: string, enum: [weekly, monthly] }
+ *               startDate: { type: string, format: date }
+ *               endDate: { type: string, format: date }
+ *     responses:
+ *       200: { description: Budget updated }
+ */
 router.put(
   "/:id",
   rateLimitMiddleware,

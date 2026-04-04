@@ -22,6 +22,44 @@ const csv = (v?: any) =>
 
 const router = Router();
 
+/**
+ * @openapi
+ * /recipes:
+ *   get:
+ *     tags: [Recipes]
+ *     summary: Search & browse recipes
+ *     security: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema: { type: string }
+ *       - in: query
+ *         name: diets
+ *         schema: { type: string, description: CSV diet codes }
+ *       - in: query
+ *         name: cuisines
+ *         schema: { type: string, description: CSV cuisine codes }
+ *       - in: query
+ *         name: allergens_exclude
+ *         schema: { type: string, description: CSV allergen codes }
+ *       - in: query
+ *         name: cal_min
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: cal_max
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *     responses:
+ *       200: { description: Paginated recipe search results }
+ */
 // Search and browsing
 router.get("/", rateLimitMiddleware, async (req, res, next) => {
   try {
@@ -56,6 +94,20 @@ router.get("/", rateLimitMiddleware, async (req, res, next) => {
   }
 });
 
+/**
+ * @openapi
+ * /recipes/popular:
+ *   get:
+ *     tags: [Recipes]
+ *     summary: Get popular recipes
+ *     security: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *     responses:
+ *       200: { description: Popular recipes }
+ */
 router.get("/popular", rateLimitMiddleware, async (req, res, next) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
@@ -66,6 +118,22 @@ router.get("/popular", rateLimitMiddleware, async (req, res, next) => {
   }
 });
 
+/**
+ * @openapi
+ * /recipes/{id}:
+ *   get:
+ *     tags: [Recipes]
+ *     summary: Get recipe detail
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Full recipe detail }
+ *       404: { description: Recipe not found }
+ */
 router.get("/:id", rateLimitMiddleware, async (req, res, next) => {
   try {
     const recipe = await getRecipeDetail(req.params.id);
@@ -75,6 +143,20 @@ router.get("/:id", rateLimitMiddleware, async (req, res, next) => {
   }
 });
 
+/**
+ * @openapi
+ * /recipes/{id}/save:
+ *   post:
+ *     tags: [Recipes]
+ *     summary: Toggle save/unsave a recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Save toggled }
+ */
 // User interactions (require auth)
 router.post("/:id/save", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
@@ -86,6 +168,20 @@ router.post("/:id/save", authMiddleware, rateLimitMiddleware, async (req, res, n
   }
 });
 
+/**
+ * @openapi
+ * /recipes/{id}/report:
+ *   post:
+ *     tags: [Recipes]
+ *     summary: Report a recipe (not implemented)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       501: { description: Not implemented }
+ */
 router.post("/:id/report", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
     res.status(501).json({ error: "Recipe reporting is not supported in the gold schema." });
@@ -94,6 +190,20 @@ router.post("/:id/report", authMiddleware, rateLimitMiddleware, async (req, res,
   }
 });
 
+/**
+ * @openapi
+ * /recipes/{id}/reject:
+ *   post:
+ *     tags: [Recipes]
+ *     summary: Mark recipe as 'Not for me'
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Recipe rejected }
+ */
 // PRD-23: Mark recipe as "Not for me"
 router.post("/:id/reject", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
   try {
@@ -117,6 +227,33 @@ const rateSchema = z.object({
   mealPlanItemId: z.string().uuid().optional(),
 });
 
+/**
+ * @openapi
+ * /recipes/{id}/rate:
+ *   post:
+ *     tags: [Recipes]
+ *     summary: Rate a recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [rating]
+ *             properties:
+ *               rating: { type: integer, minimum: 1, maximum: 5 }
+ *               feedbackText: { type: string, maxLength: 2000 }
+ *               likedAspects: { type: array, items: { type: string } }
+ *               dislikedAspects: { type: array, items: { type: string } }
+ *               wouldMakeAgain: { type: boolean }
+ *     responses:
+ *       200: { description: Rating saved }
+ */
 // POST /api/v1/recipes/:id/rate
 router.post("/:id/rate", authMiddleware, rateLimitMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -129,6 +266,20 @@ router.post("/:id/rate", authMiddleware, rateLimitMiddleware, async (req: Reques
   }
 });
 
+/**
+ * @openapi
+ * /recipes/{id}/rating:
+ *   get:
+ *     tags: [Recipes]
+ *     summary: Get user rating and average for a recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Rating data }
+ */
 // GET /api/v1/recipes/:id/rating
 router.get("/:id/rating", authMiddleware, rateLimitMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -143,6 +294,21 @@ router.get("/:id/rating", authMiddleware, rateLimitMiddleware, async (req: Reque
   }
 });
 
+/**
+ * @openapi
+ * /recipes/r/{shareSlug}:
+ *   get:
+ *     tags: [Recipes]
+ *     summary: Get shared recipe by slug (not implemented)
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: shareSlug
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       501: { description: Not implemented }
+ */
 // Shared recipe access (no auth required)
 router.get("/r/:shareSlug", rateLimitMiddleware, async (req, res, next) => {
   try {

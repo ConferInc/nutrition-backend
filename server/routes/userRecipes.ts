@@ -2,6 +2,7 @@ import { Router } from "express";
 import { createUserRecipe, deleteUserRecipe, getUserRecipe, getUserRecipes, updateUserRecipe } from "../services/userContent.js";
 import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 import { authMiddleware } from "../middleware/auth.js";
+import { trackFeature } from "../services/featureTracking.js";
 
 function getJsonBody(req: any) {
   if (typeof req.body === "string") {
@@ -12,7 +13,22 @@ function getJsonBody(req: any) {
 
 const router = Router();
 
-/** GET /api/v1/user-recipes  (list current user's recipes) */
+/**
+ * @openapi
+ * /user-recipes:
+ *   get:
+ *     tags: [User Recipes]
+ *     summary: List current user's recipes
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50, maximum: 100 }
+ *       - in: query
+ *         name: offset
+ *         schema: { type: integer, default: 0 }
+ *     responses:
+ *       200: { description: Paginated user recipes }
+ */
 router.get("/", authMiddleware, async (req, res, next) => {
   try {
     const b2cCustomerId = requireB2cCustomerIdFromReq(req);
@@ -23,7 +39,21 @@ router.get("/", authMiddleware, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-/** GET /api/v1/user-recipes/:id */
+/**
+ * @openapi
+ * /user-recipes/{id}:
+ *   get:
+ *     tags: [User Recipes]
+ *     summary: Get a single user recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Recipe detail }
+ *       404: { description: Recipe not found }
+ */
 router.get("/:id", authMiddleware, async (req, res, next) => {
   try {
     const b2cCustomerId = requireB2cCustomerIdFromReq(req);
@@ -32,7 +62,27 @@ router.get("/:id", authMiddleware, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-/** POST /api/v1/user-recipes */
+/**
+ * @openapi
+ * /user-recipes:
+ *   post:
+ *     tags: [User Recipes]
+ *     summary: Create a new user recipe
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [title, ingredients, instructions]
+ *             properties:
+ *               title: { type: string, minLength: 2 }
+ *               ingredients: { type: array, items: { type: object } }
+ *               instructions: { type: array, items: { type: string } }
+ *     responses:
+ *       201: { description: Recipe created }
+ *       400: { description: Validation error }
+ */
 router.post("/", authMiddleware, async (req, res, next) => {
   try {
     const b2cCustomerId = requireB2cCustomerIdFromReq(req);
@@ -51,11 +101,32 @@ router.post("/", authMiddleware, async (req, res, next) => {
     }
 
     const row = await createUserRecipe(b2cCustomerId, p);
+    trackFeature(b2cCustomerId, "recipe_save", "create");
     res.status(201).json(row);
   } catch (err) { next(err); }
 });
 
-/** PATCH /api/v1/user-recipes/:id */
+/**
+ * @openapi
+ * /user-recipes/{id}:
+ *   patch:
+ *     tags: [User Recipes]
+ *     summary: Update a user recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             description: Partial recipe update
+ *     responses:
+ *       200: { description: Recipe updated }
+ */
 router.patch("/:id", authMiddleware, async (req, res, next) => {
   try {
     const patch = getJsonBody(req)?.recipe ?? getJsonBody(req);
@@ -65,7 +136,20 @@ router.patch("/:id", authMiddleware, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-/** DELETE /api/v1/user-recipes/:id */
+/**
+ * @openapi
+ * /user-recipes/{id}:
+ *   delete:
+ *     tags: [User Recipes]
+ *     summary: Delete a user recipe
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       204: { description: Recipe deleted }
+ */
 router.delete("/:id", authMiddleware, async (req, res, next) => {
   try {
     const b2cCustomerId = requireB2cCustomerIdFromReq(req);

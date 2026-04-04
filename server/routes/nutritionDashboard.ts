@@ -81,6 +81,22 @@ function toWeekStartMonday(date: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * @openapi
+ * /nutrition/daily:
+ *   get:
+ *     tags: [Nutrition Dashboard]
+ *     summary: Daily nutrition summary
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Daily nutrition totals vs targets }
+ */
 router.get(
   "/daily",
   rateLimitMiddleware,
@@ -102,6 +118,22 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /nutrition/weekly:
+ *   get:
+ *     tags: [Nutrition Dashboard]
+ *     summary: Weekly nutrition summary
+ *     parameters:
+ *       - in: query
+ *         name: weekStart
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Weekly nutrition trends }
+ */
 router.get(
   "/weekly",
   rateLimitMiddleware,
@@ -124,6 +156,23 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /nutrition/monthly:
+ *   get:
+ *     tags: [Nutrition Dashboard]
+ *     summary: Monthly nutrition summary
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         required: true
+ *         schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Monthly nutrition data }
+ */
 router.get(
   "/monthly",
   rateLimitMiddleware,
@@ -143,6 +192,27 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /nutrition/range:
+ *   get:
+ *     tags: [Nutrition Dashboard]
+ *     summary: Nutrition data over custom date range
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         required: true
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: endDate
+ *         required: true
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Custom range nutrition data }
+ */
 router.get(
   "/range",
   rateLimitMiddleware,
@@ -163,6 +233,19 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /nutrition/member-summary:
+ *   get:
+ *     tags: [Nutrition Dashboard]
+ *     summary: Summary across all household members
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200: { description: Nutrition summary per member }
+ */
 router.get(
   "/member-summary",
   rateLimitMiddleware,
@@ -183,6 +266,19 @@ router.get(
   }
 );
 
+/**
+ * @openapi
+ * /nutrition/health-metrics:
+ *   get:
+ *     tags: [Nutrition Dashboard]
+ *     summary: Health metrics overview
+ *     parameters:
+ *       - in: query
+ *         name: memberId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200: { description: Health metrics and trends }
+ */
 router.get(
   "/health-metrics",
   rateLimitMiddleware,

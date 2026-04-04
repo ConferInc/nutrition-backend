@@ -8,6 +8,7 @@ import { setCurrentUser, executeRaw } from "../config/database.js";
 import { getB2cCustomerByAppwriteId } from "../services/b2cIdentity.js";
 import { AppError } from "./errorHandler.js";
 import { upsertProfileFromAppwrite } from "../services/supabaseSync.js";
+import { maybeLogLogin } from "../services/sessionTracking.js";
 
 // Re-export for consumers that import from auth.ts
 export type { UserContext };
@@ -99,6 +100,9 @@ export async function authMiddleware(
         [clientTimezone, customer!.id]
       ).catch(() => { /* ignore tz update failures */ });
     }
+
+    // ── B2C-020: Fire-and-forget session event (30-min debounce) ──
+    maybeLogLogin(req, customer?.id).catch(() => {});
 
     return next();
   } catch (error: any) {

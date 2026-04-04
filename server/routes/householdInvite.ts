@@ -31,7 +31,33 @@ const createInvitationSchema = z.object({
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
-// POST /api/v1/households/invitations — Generate invite token
+/**
+ * @openapi
+ * /households/invitations:
+ *   post:
+ *     tags: [Household Invites]
+ *     summary: Create a household invitation
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               role: { type: string, enum: [secondary_adult, child, dependent], default: secondary_adult }
+ *               invitedEmail: { type: string, format: email }
+ *     responses:
+ *       201:
+ *         description: Invitation created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 invitation: { type: object }
+ *                 inviteUrl: { type: string, format: uri }
+ *                 expiresAt: { type: string, format: date-time }
+ */
 router.post(
   "/",
   authMiddleware,
@@ -64,7 +90,15 @@ router.post(
   }
 );
 
-// GET /api/v1/households/invitations — List pending invites for my household
+/**
+ * @openapi
+ * /households/invitations:
+ *   get:
+ *     tags: [Household Invites]
+ *     summary: List pending household invitations
+ *     responses:
+ *       200: { description: List of pending invitations }
+ */
 router.get(
   "/",
   authMiddleware,
@@ -81,7 +115,20 @@ router.get(
   }
 );
 
-// DELETE /api/v1/households/invitations/:id — Revoke invite
+/**
+ * @openapi
+ * /households/invitations/{id}:
+ *   delete:
+ *     tags: [Household Invites]
+ *     summary: Revoke a household invitation
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       204: { description: Invitation revoked }
+ */
 router.delete(
   "/:id",
   authMiddleware,
@@ -105,7 +152,21 @@ export default router;
 
 export const invitationTokenRouter = Router();
 
-// GET /api/v1/invitations/:token — Get invitation details (requires auth)
+/**
+ * @openapi
+ * /invitations/{token}:
+ *   get:
+ *     tags: [Household Invites]
+ *     summary: Get invitation details by token
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Invitation details }
+ *       404: { description: Invitation not found or expired }
+ */
 invitationTokenRouter.get(
   "/:token",
   authMiddleware,
@@ -120,7 +181,29 @@ invitationTokenRouter.get(
   }
 );
 
-// POST /api/v1/invitations/:token/accept — Accept invitation
+/**
+ * @openapi
+ * /invitations/{token}/accept:
+ *   post:
+ *     tags: [Household Invites]
+ *     summary: Accept a household invitation
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Invitation accepted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 message: { type: string }
+ *                 householdId: { type: string, format: uuid }
+ */
 invitationTokenRouter.post(
   "/:token/accept",
   authMiddleware,
