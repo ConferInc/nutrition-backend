@@ -27,9 +27,9 @@ export async function shouldShowNps(b2cCustomerId: string): Promise<boolean> {
     // 2. Check for recent NPS response (submitted or dismissed)
     const recent = await executeRaw(
       `SELECT 1 FROM gold.b2c_nps_responses
-       WHERE b2c_customer_id = $1 AND created_at > now() - interval '${COOLDOWN_DAYS} days'
+       WHERE b2c_customer_id = $1 AND created_at > now() - make_interval(days => $2)
        LIMIT 1`,
-      [b2cCustomerId]
+      [b2cCustomerId, COOLDOWN_DAYS]
     );
     return !(recent as any[]).length;
   } catch (err) {

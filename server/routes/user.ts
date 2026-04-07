@@ -43,6 +43,7 @@ import {
 } from "../services/userContent.js";
 import { deleteAppwriteDocuments, deleteAppwriteUser, updateAppwriteProfile, updateAppwriteHealth } from "../services/appwrite.js";
 import { AppError } from "../middleware/errorHandler.js";
+import { logLogout } from "../services/sessionTracking.js";
 
 const router = Router();
 
@@ -1043,6 +1044,22 @@ router.patch("/settings", authMiddleware, rateLimitMiddleware, async (req, res, 
     }
   } catch (err) {
     next(err);
+  }
+});
+
+// ── B2C-COMPLIANCE: Logout event tracking ──────────────────────────────────
+router.post("/logout", (req, res, next) => {
+  (req as any).skipLoginTracking = true;
+  next();
+}, authMiddleware, async (req, res) => {
+  try {
+    const custId = await requireB2cCustomerIdFromReq(req);
+    await logLogout(req, custId);
+    res.json({ ok: true });
+  } catch (err) {
+    // Never block logout — return 200 even if tracking fails
+    console.error("[LOGOUT]", (err as Error).message);
+    res.json({ ok: true });
   }
 });
 
