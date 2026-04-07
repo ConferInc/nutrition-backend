@@ -1048,7 +1048,7 @@ router.patch("/settings", authMiddleware, rateLimitMiddleware, async (req, res, 
 });
 
 // ── B2C-COMPLIANCE: Logout event tracking ──────────────────────────────────
-router.post("/logout", async (req, res) => {
+router.post("/logout", authMiddleware, async (req, res) => {
   try {
     const custId = await requireB2cCustomerIdFromReq(req);
     await logLogout(req, custId);

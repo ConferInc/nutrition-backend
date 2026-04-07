@@ -26,29 +26,29 @@ function requireAdminUserId(req: Request): string {
 }
 
 // Development bypass for all admin routes
-if (process.env.NODE_ENV === 'development') {
-  // SECURITY: Block dev bypass if DATABASE_URL points to a known production host.
-  // Prevents accidental full admin access if NODE_ENV is unset (defaults to 'development').
-  const dbUrl = process.env.DATABASE_URL ?? "";
-  if (dbUrl.includes("207.244.226.234") || dbUrl.includes("confer.today")) {
-    console.error("[ADMIN] ⛔ Dev bypass BLOCKED — production DATABASE_URL detected. Set NODE_ENV=production.");
-    // Fall through to the production auth path below
-  } else {
-    router.use(async (req, res, next) => {
-      console.log(`[ADMIN] Development bypass for: ${req.url}`);
-      req.user = {
-        userId: 'dev-admin-user',
-        isAdmin: true,
-        effectiveUserId: 'dev-admin-user',
-        isImpersonating: false,
-        profile: { role: 'admin' }
-      };
-      await setCurrentUser('dev-admin-user');
-      next();
-    });
-  }
+const isDev = process.env.NODE_ENV === 'development';
+const dbUrl = process.env.DATABASE_URL ?? "";
+const isProdDb = dbUrl.includes("207.244.226.234") || dbUrl.includes("confer.today");
+
+if (isDev && !isProdDb) {
+  // Local development with local DB — install dev bypass
+  router.use(async (req, res, next) => {
+    console.log(`[ADMIN] Development bypass for: ${req.url}`);
+    req.user = {
+      userId: 'dev-admin-user',
+      isAdmin: true,
+      effectiveUserId: 'dev-admin-user',
+      isImpersonating: false,
+      profile: { role: 'admin' }
+    };
+    await setCurrentUser('dev-admin-user');
+    next();
+  });
 } else {
-  // Require admin for all routes in production
+  // Production OR dev-with-prod-DB — require real authentication
+  if (isDev && isProdDb) {
+    console.error("[ADMIN] ⛔ Dev bypass BLOCKED — production DATABASE_URL detected. Full auth required.");
+  }
   router.use(authMiddleware);
   router.use((req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
