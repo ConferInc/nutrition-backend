@@ -27,10 +27,9 @@ function requireAdminUserId(req: Request): string {
 
 // Development bypass for all admin routes
 const isDev = process.env.NODE_ENV === 'development';
-const dbUrl = process.env.DATABASE_URL ?? "";
-const isProdDb = dbUrl.includes("207.244.226.234") || dbUrl.includes("confer.today");
+const adminBypassEnabled = process.env.ADMIN_BYPASS_ENABLED === 'true';
 
-if (isDev && !isProdDb) {
+if (isDev && adminBypassEnabled) {
   // Local development with local DB — install dev bypass
   router.use(async (req, res, next) => {
     console.log(`[ADMIN] Development bypass for: ${req.url}`);
@@ -46,8 +45,8 @@ if (isDev && !isProdDb) {
   });
 } else {
   // Production OR dev-with-prod-DB — require real authentication
-  if (isDev && isProdDb) {
-    console.error("[ADMIN] ⛔ Dev bypass BLOCKED — production DATABASE_URL detected. Full auth required.");
+  if (isDev) {
+    console.warn("[ADMIN] ⛔ Dev bypass NOT enabled — set ADMIN_BYPASS_ENABLED=true in your environment to activate.");
   }
   router.use(authMiddleware);
   router.use((req: Request, res: Response, next: NextFunction) => {

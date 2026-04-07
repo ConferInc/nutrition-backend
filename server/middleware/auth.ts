@@ -102,7 +102,9 @@ export async function authMiddleware(
     }
 
     // ── B2C-020: Fire-and-forget session event (30-min debounce) ──
-    maybeLogLogin(req, customer?.id).catch(() => {});
+    if (!(req as any).skipLoginTracking) {
+      maybeLogLogin(req, customer?.id).catch(() => {});
+    }
 
     return next();
   } catch (error: any) {
