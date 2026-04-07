@@ -91,9 +91,9 @@ export async function maybeLogLogin(
       `SELECT 1 FROM gold.b2c_session_events
        WHERE b2c_customer_id = $1
          AND event_type = 'login'
-         AND created_at > now() - interval '${DEBOUNCE_MINUTES} minutes'
+         AND created_at > now() - make_interval(mins => $2)
        LIMIT 1`,
-      [b2cCustomerId]
+      [b2cCustomerId, DEBOUNCE_MINUTES]
     );
 
     if (recent && (recent as any[]).length > 0) return; // Already logged recently
@@ -111,5 +111,31 @@ export async function maybeLogLogin(
   } catch (err) {
     // Silently log — never block the user request
     console.error("[SESSION-TRACK]", (err as Error).message);
+  }
+}
+
+/**
+ * Log a "logout" session event. Called from the logout route.
+ * Unlike maybeLogLogin, no debounce is needed — logout is an explicit user action.
+ */
+export async function logLogout(
+  req: Request,
+  b2cCustomerId: string | undefined
+): Promise<void> {
+  if (!b2cCustomerId) return;
+
+  try {
+    const rawUa = req.headers["user-agent"] as string | undefined;
+    const { deviceType, browser, os } = parseUserAgent(rawUa);
+    const ip = extractIp(req);
+
+    await executeRaw(
+      `INSERT INTO gold.b2c_session_events
+         (b2c_customer_id, event_type, device_type, browser, os, ip_address, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [b2cCustomerId, "logout", deviceType, browser, os, ip, rawUa ?? null]
+    );
+  } catch (err) {
+    console.error("[SESSION-TRACK] logout", (err as Error).message);
   }
 }
