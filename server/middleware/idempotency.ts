@@ -93,7 +93,7 @@ export async function idempotencyMiddleware(req: Request, res: Response, next: N
     next();
   } catch (error) {
     logger.error("Idempotency middleware error:", error);
-    next();
+    next(error);  // Forward to global error handler instead of swallowing
   }
 }
 
