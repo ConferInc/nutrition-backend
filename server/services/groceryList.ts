@@ -9,6 +9,7 @@ import { getOrCreateHousehold } from "./household.js";
 import { canTransitionGroceryListStatus } from "./groceryListUtils.js";
 import { ragProducts, ragAlternatives } from "./ragClient.js";
 import { getGroceryPreferences, getCertCategoriesForPreferences } from "./groceryPreferences.js";
+import { logger } from "../config/logger.js";
 
 export interface GenerateGroceryListInput {
   mealPlanId?: string;
@@ -613,7 +614,7 @@ export async function generateGroceryList(
   });
 
   const elapsedMs = Date.now() - startedAt;
-  console.log("[GroceryList] generate", {
+  logger.info("[GroceryList] generate", {
     householdId: household.id,
     mealPlanId: plan.id,
     generatedItems: result.items.length,

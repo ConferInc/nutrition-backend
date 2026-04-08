@@ -1,3 +1,4 @@
+import { logger } from "../config/logger.js";
 // server/services/openfoodfacts.ts
 // External API client for OpenFoodFacts product lookups
 
@@ -100,7 +101,7 @@ export async function fetchFromOpenFoodFacts(
 
     try {
         const url = `${BASE_URL}/product/${encodeURIComponent(barcode)}.json`;
-        console.log(`[OpenFoodFacts] Fetching: ${url}`);
+        logger.info(`[OpenFoodFacts] Fetching: ${url}`);
 
         const response = await fetch(url, {
             headers: {
@@ -111,7 +112,7 @@ export async function fetchFromOpenFoodFacts(
         });
 
         if (!response.ok) {
-            console.warn(
+            logger.warn(
                 `[OpenFoodFacts] HTTP ${response.status} for barcode ${barcode}`
             );
             return null;
@@ -120,7 +121,7 @@ export async function fetchFromOpenFoodFacts(
         const data = (await response.json()) as OpenFoodFactsResponse;
 
         if (data.status !== 1 || !data.product) {
-            console.log(
+            logger.info(
                 `[OpenFoodFacts] Product not found for barcode ${barcode}: ${data.status_verbose}`
             );
             return null;
@@ -156,9 +157,9 @@ export async function fetchFromOpenFoodFacts(
         };
     } catch (error: unknown) {
         if (error instanceof Error && error.name === "AbortError") {
-            console.warn(`[OpenFoodFacts] Timeout for barcode ${barcode}`);
+            logger.warn(`[OpenFoodFacts] Timeout for barcode ${barcode}`);
         } else {
-            console.error(`[OpenFoodFacts] Error fetching barcode ${barcode}:`, error);
+            logger.error(`[OpenFoodFacts] Error fetching barcode ${barcode}:`, error);
         }
         return null;
     } finally {

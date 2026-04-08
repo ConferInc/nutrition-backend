@@ -9,6 +9,7 @@ import { getB2cCustomerByAppwriteId } from "../services/b2cIdentity.js";
 import { AppError } from "./errorHandler.js";
 import { upsertProfileFromAppwrite } from "../services/supabaseSync.js";
 import { maybeLogLogin } from "../services/sessionTracking.js";
+import { logger } from "../config/logger.js";
 
 // Re-export for consumers that import from auth.ts
 export type { UserContext };
@@ -28,7 +29,7 @@ export async function authMiddleware(
   try {
     // Diagnostics — only log in development to avoid info leak in production
     if (process.env.NODE_ENV !== "production") {
-      console.log(
+      logger.info(
         `[AUTH] ${req.method} ${req.url} (env=${process.env.NODE_ENV}) isAdminRoute=${req.url.includes(
           "/admin"
         )}`
@@ -70,7 +71,7 @@ export async function authMiddleware(
         });
         customer = await getB2cCustomerByAppwriteId(effectiveId);
       } catch (e) {
-        console.error("[AUTH] Auto-provision b2c_customers failed:", e);
+        logger.error("[AUTH] Auto-provision b2c_customers failed:", e);
       }
     }
 

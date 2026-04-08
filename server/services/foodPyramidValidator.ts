@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────────────────────────
 
 import { executeRaw } from "../config/database.js";
+import { logger } from "../config/logger.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -143,7 +144,7 @@ export async function auditMealPlanAgainstGuidelines(
        ORDER BY pyramid_priority ASC`
     )) as any[];
   } catch (err) {
-    console.warn("[FoodPyramid] Could not load guidelines from DB, using defaults");
+    logger.warn("[FoodPyramid] Could not load guidelines from DB, using defaults");
     guidelines = [
       { food_group: "protein",      daily_target_min: 5.5, daily_target_max: 6.5, daily_target_unit: "oz_eq",  calorie_percentage: 35, pyramid_priority: 1, calorie_basis: 2000 },
       { food_group: "dairy",        daily_target_min: 3.0, daily_target_max: 3.0, daily_target_unit: "cup_eq", calorie_percentage: 15, pyramid_priority: 2, calorie_basis: 2000 },

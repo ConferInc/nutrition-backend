@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as goldSchema from "../../shared/goldSchema.js";
 import { env } from "./env.js";
+import { logger } from "./logger.js";
 
 if (!env.DATABASE_URL) {
   throw new Error("DATABASE_URL environment variable is required");
@@ -48,7 +49,7 @@ export async function setCurrentUser(userId: string) {
     );
   } catch (error) {
     // If the GUC isn't defined, log warning but continue (dev-friendly)
-    console.warn(`[DB] RLS user context not available: ${error}`);
+    logger.warn(`[DB] RLS user context not available: ${error}`);
   }
 }
 
@@ -71,7 +72,7 @@ export async function checkDatabaseHealth(): Promise<boolean> {
     await queryClient`SELECT 1`;
     return true;
   } catch (error) {
-    console.error("Database health check failed:", error);
+    logger.error("Database health check failed:", error);
     return false;
   }
 }

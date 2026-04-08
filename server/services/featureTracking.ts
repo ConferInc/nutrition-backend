@@ -9,6 +9,7 @@
  */
 
 import { executeRaw } from "../config/database.js";
+import { logger } from "../config/logger.js";
 
 /**
  * Log a feature usage event. Fire-and-forget — caller should `.catch(() => {})`.
@@ -40,6 +41,6 @@ export function trackFeature(
       durationMs ?? null,
     ]
   ).catch((err) => {
-    console.error("[FEATURE-TRACK]", (err as Error).message);
+    logger.error("[FEATURE-TRACK]", (err as Error).message);
   });
 }

@@ -9,6 +9,7 @@ import { fetchFromOpenFoodFacts } from "./openfoodfacts.js";
 import type { NormalizedProduct } from "./openfoodfacts.js";
 import type { GoldProduct } from "../../shared/goldSchema.js";
 import { ragAlternatives } from "./ragClient.js";
+import { logger } from "../config/logger.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -220,7 +221,7 @@ async function cacheProductAllergens(
         ) as unknown as { id: string; code: string; name: string }[];
 
         if (matchedAllergens.length === 0) {
-            console.log(
+            logger.info(
                 `[Scan] No allergen matches in DB for tags: ${data.allergenTags.join(", ")}`
             );
             return;
@@ -270,16 +271,16 @@ async function cacheProductAllergens(
             (t) => !matchedCodes.has(t.toLowerCase()) && !matchedNames.has(t.toLowerCase())
         );
         if (unmatched.length > 0) {
-            console.log(
+            logger.info(
                 `[Scan] Unmatched allergens stored in vendor_specific_attrs: ${unmatched.join(", ")}`
             );
         }
 
-        console.log(
+        logger.info(
             `[Scan] Cached ${matchedAllergens.length} allergens for product ${productId}`
         );
     } catch (error) {
-        console.error("[Scan] Failed to cache product allergens:", error);
+        logger.error("[Scan] Failed to cache product allergens:", error);
         // Non-fatal — allergens are also in vendor_specific_attrs as fallback
     }
 }
@@ -316,7 +317,7 @@ async function getProductAllergenNames(productId: string): Promise<string[]> {
 
         return [];
     } catch (error) {
-        console.error("[Scan] Failed to get product allergens:", error);
+        logger.error("[Scan] Failed to get product allergens:", error);
         return [];
     }
 }
@@ -417,7 +418,7 @@ async function generateAllergenWarnings(
                 } — unsafe for ${w.member_name}`,
         }));
     } catch (error) {
-        console.error("[Scan] Allergen warning generation failed:", error);
+        logger.error("[Scan] Allergen warning generation failed:", error);
         return [];
     }
 }
@@ -516,7 +517,7 @@ async function generateHealthWarnings(
 
         return warnings;
     } catch (error) {
-        console.error("[Scan] Health warning generation failed:", error);
+        logger.error("[Scan] Health warning generation failed:", error);
         return [];
     }
 }

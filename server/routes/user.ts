@@ -44,6 +44,7 @@ import {
 import { deleteAppwriteDocuments, deleteAppwriteUser, updateAppwriteProfile, updateAppwriteHealth } from "../services/appwrite.js";
 import { AppError } from "../middleware/errorHandler.js";
 import { logLogout } from "../services/sessionTracking.js";
+import { logger } from "../config/logger.js";
 
 const router = Router();
 
@@ -1058,7 +1059,7 @@ router.post("/logout", (req, res, next) => {
     res.json({ ok: true });
   } catch (err) {
     // Never block logout — return 200 even if tracking fails
-    console.error("[LOGOUT]", (err as Error).message);
+    logger.error("[LOGOUT]", (err as Error).message);
     res.json({ ok: true });
   }
 });

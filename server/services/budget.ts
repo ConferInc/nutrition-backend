@@ -3,6 +3,7 @@ import { and, desc, eq, ne } from "drizzle-orm";
 import { db, executeRaw } from "../config/database.js";
 import { householdBudgets } from "../../shared/goldSchema.js";
 import { getOrCreateHousehold } from "./household.js";
+import { logger } from "../config/logger.js";
 import {
   type BudgetPeriod,
   type BudgetRecommendation,
@@ -483,7 +484,7 @@ export async function getBudgetSnapshot(
     },
   };
 
-  console.log("[Budget] snapshot", {
+  logger.info("[Budget] snapshot", {
     householdId: household.id,
     period: input.period,
     budgetType: input.budgetType,
@@ -680,7 +681,7 @@ export async function getBudgetRecommendations(
     generatedAt: new Date().toISOString(),
   };
 
-  console.log("[Budget] recommendations", {
+  logger.info("[Budget] recommendations", {
     householdId: household.id,
     period: input.period,
     budgetType: input.budgetType,
