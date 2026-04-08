@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { createHash } from "crypto";
+import { logger } from "../config/logger.js";
 
 type IdempotencyRecord = {
   method: string;
@@ -91,8 +92,8 @@ export async function idempotencyMiddleware(req: Request, res: Response, next: N
 
     next();
   } catch (error) {
-    console.error("Idempotency middleware error:", error);
-    next();
+    logger.error("Idempotency middleware error:", error);
+    next(error);  // Forward to global error handler instead of swallowing
   }
 }
 

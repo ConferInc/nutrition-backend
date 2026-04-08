@@ -19,6 +19,7 @@ import { eq, and, or, ilike } from "drizzle-orm";
 import { analyzeRecipeWithLLM, extractTextFromImage, analyzeImageVisually, type LLMAnalysisResult } from "./llm.js";
 import { createUserRecipe } from "./userContent.js";
 import * as cheerio from "cheerio";
+import { logger } from "../config/logger.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,23 +106,23 @@ export async function analyzeText(
     const targetMemberId = memberId || b2cCustomerId;
     const [allergenWarnings, healthWarnings] = await Promise.all([
       generateAllergenWarnings(matchedIngredients, targetMemberId).catch((err) => {
-        console.error("[Analyzer] Allergen warnings failed:", err);
+        logger.error("[Analyzer] Allergen warnings failed:", err);
         return [];
       }),
       generateHealthWarnings(llmResult.nutrition_per_serving, targetMemberId).catch((err) => {
-        console.error("[Analyzer] Health warnings failed:", err);
+        logger.error("[Analyzer] Health warnings failed:", err);
         return [];
       }),
     ]);
     const tWarn = performance.now();
 
-    console.log(
+    logger.info(
       `[Analyzer] Timing: LLM=${(tLLM - t0).toFixed(0)}ms, match=${(tMatch - tLLM).toFixed(0)}ms, warnings=${(tWarn - tMatch).toFixed(0)}ms, total=${(tWarn - t0).toFixed(0)}ms`
     );
 
     return convertToAnalyzeResult(llmResult, matchedIngredients, allergenWarnings, healthWarnings);
   } catch (error: any) {
-    console.error("[Analyzer] analyzeText failed:", error);
+    logger.error("[Analyzer] analyzeText failed:", error);
     throw error;
   }
 }
@@ -178,7 +179,7 @@ export async function analyzeUrl(
     const combined = `${title}\n\n${recipeText}`.trim();
     return analyzeText(combined, b2cCustomerId, memberId);
   } catch (error: any) {
-    console.error("[Analyzer] URL scraping failed:", error?.message || error);
+    logger.error("[Analyzer] URL scraping failed:", error?.message || error);
     throw new Error(`Failed to analyze URL: ${error?.message || "Unknown error"}`);
   }
 }
@@ -221,21 +222,21 @@ export async function analyzeImage(
   try {
     extractedText = await extractTextFromImage(imageBuffer);
     const charCount = extractedText.trim().length;
-    console.log(`[Analyzer] OCR extracted ${charCount} chars`);
+    logger.info(`[Analyzer] OCR extracted ${charCount} chars`);
 
     // Strict validation: ≥200 chars AND looks like real recipe text
     if (charCount >= 200 && looksLikeRecipeText(extractedText)) {
-      console.log("[Analyzer] OCR text passed recipe validation — using text pipeline");
+      logger.info("[Analyzer] OCR text passed recipe validation — using text pipeline");
       return analyzeText(extractedText, b2cCustomerId, memberId);
     }
 
-    console.log(`[Analyzer] OCR text failed recipe validation (${charCount} chars, recipe=${looksLikeRecipeText(extractedText)}) — using visual analysis`);
+    logger.info(`[Analyzer] OCR text failed recipe validation (${charCount} chars, recipe=${looksLikeRecipeText(extractedText)}) — using visual analysis`);
   } catch (err: any) {
-    console.warn("[Analyzer] OCR failed, using visual analysis:", err?.message);
+    logger.warn("[Analyzer] OCR failed, using visual analysis:", err?.message);
   }
 
   // Step 2: Direct visual food analysis (food photo, non-text image, or failed validation)
-  console.log("[Analyzer] Starting visual food analysis");
+  logger.info("[Analyzer] Starting visual food analysis");
   const llmResult = await analyzeImageVisually(imageBuffer);
   const tVision = performance.now();
 
@@ -245,16 +246,16 @@ export async function analyzeImage(
   const targetMemberId = memberId || b2cCustomerId;
   const [allergenWarnings, healthWarnings] = await Promise.all([
     generateAllergenWarnings(matchedIngredients, targetMemberId).catch((err) => {
-      console.error("[Analyzer] Allergen warnings failed:", err);
+      logger.error("[Analyzer] Allergen warnings failed:", err);
       return [];
     }),
     generateHealthWarnings(llmResult.nutrition_per_serving, targetMemberId).catch((err) => {
-      console.error("[Analyzer] Health warnings failed:", err);
+      logger.error("[Analyzer] Health warnings failed:", err);
       return [];
     }),
   ]);
 
-  console.log(`[Analyzer] Visual analysis total: ${(performance.now() - t0).toFixed(0)}ms (vision=${(tVision - t0).toFixed(0)}ms)`);
+  logger.info(`[Analyzer] Visual analysis total: ${(performance.now() - t0).toFixed(0)}ms (vision=${(tVision - t0).toFixed(0)}ms)`);
 
   return convertToAnalyzeResult(llmResult, matchedIngredients, allergenWarnings, healthWarnings);
 }
@@ -416,7 +417,7 @@ async function generateAllergenWarnings(
       message: `⚠️ Contains ${w.allergen_name}${w.severity ? ` (${w.severity} sensitivity)` : ""} — unsafe for ${w.member_name}`,
     }));
   } catch (error) {
-    console.error("[Analyzer] Allergen warning generation failed:", error);
+    logger.error("[Analyzer] Allergen warning generation failed:", error);
     return [];
   }
 }
@@ -480,7 +481,7 @@ async function generateHealthWarnings(
 
     return warnings;
   } catch (error) {
-    console.error("[Analyzer] Health warning generation failed:", error);
+    logger.error("[Analyzer] Health warning generation failed:", error);
     return [];
   }
 }

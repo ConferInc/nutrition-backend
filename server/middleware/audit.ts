@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { auditLog } from "../../shared/goldSchema.js";
 import { db } from "../config/database.js";
+import { logger } from "../config/logger.js";
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -40,11 +41,11 @@ export async function auditLogEntry(
       userAgent: userAgent ?? null,
     });
   } catch (error) {
-    console.error("Failed to write audit log:", error);
+    logger.error({ err: error }, "Failed to write audit log");
   }
 }
 
-export function auditedRoute(handler: (req: Request, res: Response, next: NextFunction) => Promise<any>) {
+export function auditedRoute(targetTable: string, handler: (req: Request, res: Response, next: NextFunction) => Promise<any>) {
   return async (req: Request, res: Response, next: NextFunction) => {
     let before: any = null;
     let after: any = null;
@@ -60,7 +61,7 @@ export function auditedRoute(handler: (req: Request, res: Response, next: NextFu
         await auditLogEntry(
           req.user.userId,
           `${req.method.toLowerCase()}_${req.route?.path || req.path}`,
-          "various",
+          targetTable,
           req.params.id || "",
           before,
           after,

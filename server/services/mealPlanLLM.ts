@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { createHash } from "node:crypto";
+import { logger } from "../config/logger.js";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ function isRateLimitError(error: any): boolean {
 function setProviderCooldown(reason: string): void {
   const until = Date.now() + LLM_COOLDOWN_MS;
   llmBlockedUntil = Math.max(llmBlockedUntil, until);
-  console.warn("[MealPlanLLM] Provider cooldown enabled", {
+  logger.warn("[MealPlanLLM] Provider cooldown enabled", {
     reason,
     until: new Date(llmBlockedUntil).toISOString(),
   });
@@ -310,7 +311,7 @@ ${graphInstruction}
 AVAILABLE RECIPES (pick ONLY from these):
 ${JSON.stringify(recipeSummary, null, 2)}`;
 
-  console.log("[MealPlanLLM] Generating plan:", {
+  logger.info("[MealPlanLLM] Generating plan:", {
     members: context.members.length,
     recipes: recipeSummary.length,
     dateRange: `${context.startDate} → ${context.endDate}`,
@@ -337,7 +338,7 @@ ${JSON.stringify(recipeSummary, null, 2)}`;
     );
 
     const elapsed = Date.now() - startTime;
-    console.log("[MealPlanLLM] Response received:", {
+    logger.info("[MealPlanLLM] Response received:", {
       elapsed: `${elapsed}ms`,
       model: response.model,
       finishReason: response.choices[0]?.finish_reason,
@@ -352,7 +353,7 @@ ${JSON.stringify(recipeSummary, null, 2)}`;
     try {
       parsed = JSON.parse(content) as LLMPlanResponse;
     } catch (parseError: any) {
-      console.error("[MealPlanLLM] JSON parse error:", parseError, "Content:", content.substring(0, 500));
+      logger.error("[MealPlanLLM] JSON parse error:", parseError, "Content:", content.substring(0, 500));
       throw new Error(`Failed to parse LLM meal plan response: ${parseError?.message}`);
     }
 
@@ -375,7 +376,7 @@ ${JSON.stringify(recipeSummary, null, 2)}`;
 
     return parsed;
   } catch (error: any) {
-    console.error("[MealPlanLLM] Generation failed:", error?.message || error);
+    logger.error("[MealPlanLLM] Generation failed:", error?.message || error);
     throw wrapProviderError("Meal plan generation failed", error);
   }
 }
@@ -399,7 +400,7 @@ export async function suggestSwapWithLLM(
 
   const cached = cacheGet<LLMSwapResponse>(key);
   if (cached) {
-    console.log("[MealPlanLLM] Swap cache HIT");
+    logger.info("[MealPlanLLM] Swap cache HIT");
     return cached;
   }
 
@@ -452,7 +453,7 @@ ${JSON.stringify(context.alternatives.map((a) => ({
     cacheSet(key, parsed);
     return parsed;
   } catch (error: any) {
-    console.error("[MealPlanLLM] Swap suggestion failed:", error?.message);
+    logger.error("[MealPlanLLM] Swap suggestion failed:", error?.message);
     throw wrapProviderError("Meal swap suggestion failed", error);
   }
 }

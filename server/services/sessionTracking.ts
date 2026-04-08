@@ -10,6 +10,7 @@
 
 import type { Request } from "express";
 import { executeRaw } from "../config/database.js";
+import { logger } from "../config/logger.js";
 
 // ── User-Agent Parsing (lightweight, no external dep) ──────────────────────
 
@@ -110,7 +111,7 @@ export async function maybeLogLogin(
     );
   } catch (err) {
     // Silently log — never block the user request
-    console.error("[SESSION-TRACK]", (err as Error).message);
+    logger.error("[SESSION-TRACK]", (err as Error).message);
   }
 }
 
@@ -136,6 +137,6 @@ export async function logLogout(
       [b2cCustomerId, "logout", deviceType, browser, os, ip, rawUa ?? null]
     );
   } catch (err) {
-    console.error("[SESSION-TRACK] logout", (err as Error).message);
+    logger.error("[SESSION-TRACK] logout", (err as Error).message);
   }
 }

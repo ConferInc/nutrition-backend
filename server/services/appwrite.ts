@@ -1,5 +1,6 @@
 // server/services/appwrite.ts
 import { Client, Users, Databases, Query } from "node-appwrite";
+import { logger } from "../config/logger.js";
 
 const {
   APPWRITE_ENDPOINT,
@@ -69,7 +70,7 @@ export async function updateAppwriteProfile(
   try {
     await db.updateDocument(APPWRITE_DB_ID, APPWRITE_PROFILES_COLLECTION_ID, userId, payload);
   } catch (e) {
-    console.warn("[appwrite] profile write-back failed:", e);
+    logger.warn("[appwrite] profile write-back failed:", e);
   }
 }
 
@@ -100,6 +101,6 @@ export async function updateAppwriteHealth(
   try {
     await db.updateDocument(APPWRITE_DB_ID, APPWRITE_HEALTH_COLLECTION_ID, userId, payload);
   } catch (e) {
-    console.warn("[appwrite] health write-back failed:", e);
+    logger.warn("[appwrite] health write-back failed:", e);
   }
 }

@@ -6,6 +6,7 @@
 
 import { db, executeRaw } from "../config/database.js";
 import { b2cNpsResponses } from "../../shared/goldSchema.js";
+import { logger } from "../config/logger.js";
 
 const SESSION_THRESHOLD = 5;
 const COOLDOWN_DAYS = 60;
@@ -34,7 +35,7 @@ export async function shouldShowNps(b2cCustomerId: string): Promise<boolean> {
     return !(recent as any[]).length;
   } catch (err) {
     // Never block user experience — log and return false
-    console.error("[NPS] eligibility check failed:", (err as Error).message);
+    logger.error("[NPS] eligibility check failed:", (err as Error).message);
     return false;
   }
 }

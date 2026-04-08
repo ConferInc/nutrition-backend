@@ -4,6 +4,7 @@ import { ragFeed, toRagScope } from "./ragClient.js";
 import { getOrCreateHousehold } from "./household.js";
 import { getMemberPrefs, toRagProfile, type MemberPrefs } from "./memberPrefs.js";
 import { buildRecommendationContext } from "./contextBuilder.js";
+import { logger } from "../config/logger.js";
 
 export interface FeedResult {
   recipe: any;
@@ -244,7 +245,7 @@ export async function getPersonalizedFeed(
       };
     });
   } catch (error) {
-    console.error("Personalized feed error:", error);
+    logger.error("Personalized feed error:", error);
     throw new Error("Failed to generate personalized feed");
   }
 }
@@ -306,7 +307,7 @@ export async function getFeedRecommendations(b2cCustomerId: string): Promise<{
       recent,
     };
   } catch (error) {
-    console.error("Feed recommendations error:", error);
+    logger.error("Feed recommendations error:", error);
     throw new Error("Failed to get feed recommendations");
   }
 }
@@ -416,7 +417,7 @@ export async function getPersonalizedFeedWithRAG(
       }));
       return ragResults;
     } catch (hydrationErr) {
-      console.warn("[RAG] Feed hydration failed (non-UUID IDs?), falling back to SQL:", hydrationErr);
+      logger.warn("[RAG] Feed hydration failed (non-UUID IDs?), falling back to SQL:", hydrationErr);
     }
   }
 
@@ -508,7 +509,7 @@ export async function getFeedRecommendationsWithRAG(b2cCustomerId: string, membe
 
     return { trending, forYou, recent };
   } catch (error) {
-    console.error("Feed recommendations (RAG) error:", error);
+    logger.error("Feed recommendations (RAG) error:", error);
     throw new Error("Failed to get feed recommendations");
   }
 }

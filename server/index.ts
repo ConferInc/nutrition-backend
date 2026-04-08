@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import app from "./app.js";
 import { queryClient, checkDatabaseHealth } from "./config/database.js";
 import { startNotificationCron } from "./scheduler.js";
+import { logger } from "./config/logger.js";
 
 // prefer .env.local, fallback to .env (works on Windows too)
 const CWD = process.cwd();
@@ -14,9 +15,9 @@ const envFile =
 
 if (envFile) {
   loadEnv({ path: envFile, override: false });
-  console.log(`[boot] env loaded: ${envFile}`);
+  logger.info(`[boot] env loaded: ${envFile}`);
 } else {
-  console.warn("[boot] no .env.local or .env found in", CWD);
+  logger.warn("[boot] no .env.local or .env found in", CWD);
 }
 
 const NODE_ENV = process.env.NODE_ENV ?? "development";
@@ -32,17 +33,17 @@ const WEB_ORIGINS = (process.env.WEB_ORIGINS ??
 // (no separate pg.Pool needed — all routes use postgres.js via Drizzle)
 checkDatabaseHealth()
   .then((ok) => {
-    if (ok) console.log("[db] connected");
+    if (ok) logger.info("[db] connected");
     else {
-      console.error("[db] connection failed");
+      logger.error("[db] connection failed");
       process.exit(1);
     }
   });
 
 const server = app.listen(PORT, HOST, () => {
-  console.log(`[express] 🚀 Nutrition Backend running on http://${HOST}:${PORT}`);
-  console.log(`[express] Environment: ${NODE_ENV}`);
-  console.log(`[express] CORS origins: ${WEB_ORIGINS.join(", ")}`);
+  logger.info(`[express] 🚀 Nutrition Backend running on http://${HOST}:${PORT}`);
+  logger.info(`[express] Environment: ${NODE_ENV}`);
+  logger.info(`[express] CORS origins: ${WEB_ORIGINS.join(", ")}`);
   startNotificationCron();
 });
 
@@ -62,11 +63,11 @@ let isShuttingDown = false;
 async function gracefulShutdown(signal: string) {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  console.log(`[shutdown] Received ${signal}. Closing server gracefully...`);
+  logger.info(`[shutdown] Received ${signal}. Closing server gracefully...`);
 
   // Force exit after 15s if graceful shutdown stalls — placed FIRST to bound total time
   const forceExitTimer = setTimeout(() => {
-    console.error("[shutdown] Forceful exit after timeout.");
+    logger.error("[shutdown] Forceful exit after timeout.");
     process.exit(1);
   }, 15_000);
   forceExitTimer.unref();
@@ -75,7 +76,7 @@ async function gracefulShutdown(signal: string) {
     // Stop accepting new connections and wait for in-flight requests to finish
     await new Promise<void>((resolve) => {
       server.close(() => {
-        console.log("[shutdown] HTTP server closed.");
+        logger.info("[shutdown] HTTP server closed.");
         resolve();
       });
     });
@@ -83,9 +84,9 @@ async function gracefulShutdown(signal: string) {
     // Drain DB connections after HTTP server is fully closed
     try {
       await queryClient.end({ timeout: 10 });
-      console.log("[shutdown] DB connections drained.");
+      logger.info("[shutdown] DB connections drained.");
     } catch (err) {
-      console.error("[shutdown] Error closing DB connections:", err);
+      logger.error("[shutdown] Error closing DB connections:", err);
     }
   } finally {
     clearTimeout(forceExitTimer);

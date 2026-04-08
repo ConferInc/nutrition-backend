@@ -3,6 +3,7 @@
 
 import OpenAI from "openai";
 import { createHash } from "node:crypto";
+import { logger } from "../config/logger.js";
 
 // ─── LLM Result Cache ────────────────────────────────────────────────────────
 
@@ -128,11 +129,11 @@ export async function analyzeRecipeWithLLM(text: string): Promise<LLMAnalysisRes
   const key = cacheKey("recipe", text.toLowerCase().trim());
   const cached = cacheGet<LLMAnalysisResult>(key);
   if (cached) {
-    console.log("[LLM] Cache HIT:", { textLength: text.length, title: cached.title });
+    logger.info("[LLM] Cache HIT:", { textLength: text.length, title: cached.title });
     return cached;
   }
 
-  console.log("[LLM] Cache MISS — calling LLM:", { textLength: text.length, model: LLM_MODEL, baseURL: LITELLM_BASE_URL });
+  logger.info("[LLM] Cache MISS — calling LLM:", { textLength: text.length, model: LLM_MODEL, baseURL: LITELLM_BASE_URL });
 
   try {
     const response = await client.chat.completions.create({
@@ -153,7 +154,7 @@ export async function analyzeRecipeWithLLM(text: string): Promise<LLMAnalysisRes
       stream: false,
     }, { timeout: 60000 });
 
-    console.log("[LLM] Received response:", {
+    logger.info("[LLM] Received response:", {
       hasContent: !!response.choices[0]?.message?.content,
       finishReason: response.choices[0]?.finish_reason,
       model: response.model
@@ -169,21 +170,21 @@ export async function analyzeRecipeWithLLM(text: string): Promise<LLMAnalysisRes
     try {
       parsed = JSON.parse(content) as LLMAnalysisResult;
     } catch (parseError: any) {
-      console.error("[LLM] JSON parse error:", parseError, "Content:", content.substring(0, 500));
+      logger.error("[LLM] JSON parse error:", parseError, "Content:", content.substring(0, 500));
       throw new Error(`Failed to parse LLM response as JSON: ${parseError?.message}`);
     }
 
     // Validate required fields (make some optional with defaults)
     if (!parsed.title) {
-      console.warn("[LLM] Missing title in response, using default");
+      logger.warn("[LLM] Missing title in response, using default");
       parsed.title = "Untitled Recipe";
     }
     if (!parsed.ingredients || !Array.isArray(parsed.ingredients)) {
-      console.warn("[LLM] Missing or invalid ingredients in response");
+      logger.warn("[LLM] Missing or invalid ingredients in response");
       parsed.ingredients = [];
     }
     if (!parsed.nutrition_per_serving) {
-      console.warn("[LLM] Missing nutrition_per_serving in response");
+      logger.warn("[LLM] Missing nutrition_per_serving in response");
       parsed.nutrition_per_serving = {
         calories: 0,
         protein_g: 0,
@@ -213,7 +214,7 @@ export async function analyzeRecipeWithLLM(text: string): Promise<LLMAnalysisRes
     cacheSet(key, parsed);
     return parsed;
   } catch (error: any) {
-    console.error("[LLM] Recipe analysis failed:", error?.message || error);
+    logger.error("[LLM] Recipe analysis failed:", error?.message || error);
     throw new Error(`LLM analysis failed: ${error?.message || "Unknown error"}`);
   }
 }
@@ -262,7 +263,7 @@ export async function extractTextFromImage(imageBuffer: Buffer): Promise<string>
 
     return content;
   } catch (error: any) {
-    console.error("[LLM] Image OCR failed:", error?.message || error);
+    logger.error("[LLM] Image OCR failed:", error?.message || error);
     throw new Error(`Image OCR failed: ${error?.message || "Unknown error"}`);
   }
 }
@@ -298,7 +299,7 @@ export async function analyzeImageVisually(imageBuffer: Buffer): Promise<LLMAnal
   try {
     const base64Image = imageBuffer.toString("base64");
 
-    console.log("[LLM] Visual food analysis — sending image to vision model:", { model: LLM_VISION_MODEL });
+    logger.info("[LLM] Visual food analysis — sending image to vision model:", { model: LLM_VISION_MODEL });
 
     const response = await visionClient.chat.completions.create({
       model: LLM_VISION_MODEL,
@@ -333,13 +334,13 @@ export async function analyzeImageVisually(imageBuffer: Buffer): Promise<LLMAnal
       throw new Error("Empty response from Vision API");
     }
 
-    console.log("[LLM] Visual food analysis response received");
+    logger.info("[LLM] Visual food analysis response received");
 
     let parsed: LLMAnalysisResult;
     try {
       parsed = JSON.parse(content) as LLMAnalysisResult;
     } catch (parseError: any) {
-      console.error("[LLM] Visual analysis JSON parse error:", parseError, "Content:", content.substring(0, 500));
+      logger.error("[LLM] Visual analysis JSON parse error:", parseError, "Content:", content.substring(0, 500));
       throw new Error(`Failed to parse visual analysis as JSON: ${parseError?.message}`);
     }
 
@@ -358,7 +359,7 @@ export async function analyzeImageVisually(imageBuffer: Buffer): Promise<LLMAnal
 
     return parsed;
   } catch (error: any) {
-    console.error("[LLM] Visual food analysis failed:", error?.message || error);
+    logger.error("[LLM] Visual food analysis failed:", error?.message || error);
     throw new Error(`Visual food analysis failed: ${error?.message || "Unknown error"}`);
   }
 }

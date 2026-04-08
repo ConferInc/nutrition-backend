@@ -12,6 +12,7 @@ import {
 } from "../services/admin.js";
 import { insertRecipeSchema } from "../../shared/goldSchema.js";
 import { getCircuitStatus } from "../services/ragClient.js";
+import { logger } from "../config/logger.js";
 
 const router = Router();
 
@@ -32,7 +33,7 @@ const adminBypassEnabled = process.env.ADMIN_BYPASS_ENABLED === 'true';
 if (isDev && adminBypassEnabled) {
   // Local development with local DB — install dev bypass
   router.use(async (req, res, next) => {
-    console.log(`[ADMIN] Development bypass for: ${req.url}`);
+    logger.info(`[ADMIN] Development bypass for: ${req.url}`);
     req.user = {
       userId: 'dev-admin-user',
       isAdmin: true,
@@ -46,7 +47,7 @@ if (isDev && adminBypassEnabled) {
 } else {
   // Production OR dev-with-prod-DB — require real authentication
   if (isDev) {
-    console.warn("[ADMIN] ⛔ Dev bypass NOT enabled — set ADMIN_BYPASS_ENABLED=true in your environment to activate.");
+    logger.warn("[ADMIN] ⛔ Dev bypass NOT enabled — set ADMIN_BYPASS_ENABLED=true in your environment to activate.");
   }
   router.use(authMiddleware);
   router.use((req: Request, res: Response, next: NextFunction) => {
@@ -109,7 +110,7 @@ router.get("/dashboard", async (req, res, next) => {
  *       201: { description: Recipe created }
  */
 // Curated recipe management
-router.post("/recipes", auditedRoute(async (req, res, next) => {
+router.post("/recipes", auditedRoute("b2c_curated_recipes", async (req, res, next) => {
   try {
     const recipeData = insertRecipeSchema.parse(req.body);
     const recipe = await createCuratedRecipe(requireAdminUserId(req), recipeData, req.body.reason);
@@ -133,7 +134,7 @@ router.post("/recipes", auditedRoute(async (req, res, next) => {
  *     responses:
  *       200: { description: Recipe updated }
  */
-router.put("/recipes/:id", auditedRoute(async (req, res, next) => {
+router.put("/recipes/:id", auditedRoute("b2c_curated_recipes", async (req, res, next) => {
   try {
     const updates = insertRecipeSchema.partial().parse(req.body);
     const recipe = await updateCuratedRecipe(requireAdminUserId(req), req.params.id, updates, req.body.reason);
@@ -158,7 +159,7 @@ router.put("/recipes/:id", auditedRoute(async (req, res, next) => {
  *       200: { description: Recipe deleted }
  *       400: { description: Reason required }
  */
-router.delete("/recipes/:id", auditedRoute(async (req, res, next) => {
+router.delete("/recipes/:id", auditedRoute("b2c_curated_recipes", async (req, res, next) => {
   try {
     const { reason } = req.body;
     if (!reason) {
@@ -193,7 +194,7 @@ router.delete("/recipes/:id", auditedRoute(async (req, res, next) => {
  *       501: { description: Not implemented }
  */
 // User content moderation
-router.post("/user-recipes/:id/approve", auditedRoute(async (req, res, next) => {
+router.post("/user-recipes/:id/approve", auditedRoute("b2c_user_recipes", async (req, res, next) => {
   try {
     res.status(501).json({ error: "User recipe moderation is not supported in the gold schema." });
   } catch (error) {
@@ -215,7 +216,7 @@ router.post("/user-recipes/:id/approve", auditedRoute(async (req, res, next) => 
  *     responses:
  *       501: { description: Not implemented }
  */
-router.post("/user-recipes/:id/reject", auditedRoute(async (req, res, next) => {
+router.post("/user-recipes/:id/reject", auditedRoute("b2c_user_recipes", async (req, res, next) => {
   try {
     res.status(501).json({ error: "User recipe moderation is not supported in the gold schema." });
   } catch (error) {
@@ -255,7 +256,7 @@ router.get("/reports", async (req, res, next) => {
  *     responses:
  *       501: { description: Not implemented }
  */
-router.post("/reports/:id/resolve", auditedRoute(async (req, res, next) => {
+router.post("/reports/:id/resolve", auditedRoute("b2c_recipe_reports", async (req, res, next) => {
   try {
     res.status(501).json({ error: "Report resolution is not supported in the gold schema." });
   } catch (error) {
@@ -306,7 +307,7 @@ router.get("/audit", async (req, res, next) => {
  *       501: { description: Not implemented }
  */
 // System operations
-router.post("/refresh-materialized-views", auditedRoute(async (req, res, next) => {
+router.post("/refresh-materialized-views", auditedRoute("materialized_views", async (req, res, next) => {
   try {
     res.status(501).json({ error: "Materialized views are not configured in the gold schema." });
   } catch (error) {
