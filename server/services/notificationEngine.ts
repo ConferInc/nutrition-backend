@@ -6,6 +6,7 @@ import { executeRaw } from "../config/database.js";
 import { createNotification } from "./notifications.js";
 import { getStreak } from "./mealLog.js";
 import { ragNotifications } from "./ragClient.js";
+import { logger } from "../config/logger.js";
 
 // ── PRD-32: Configurable Daily Cap ───────────────────────────────────────────
 
@@ -546,7 +547,7 @@ export async function evaluateAndDispatchNotifications(
         timezone = clientTimezone || "UTC";
     }
 
-    console.log(`[NotificationEngine] customerId=${customerId} timezone=${timezone}`);
+    logger.info(`[NotificationEngine] customerId=${customerId} timezone=${timezone}`);
 
     const localHour = getLocalHour(timezone);
     const todayStr = getLocalDateStr(timezone);
@@ -554,7 +555,7 @@ export async function evaluateAndDispatchNotifications(
     // ── PRD-32: Check daily cap — early exit if user already at limit ────────
     const todayCount = await getTodayDispatchCount(customerId, todayStr);
     if (todayCount >= MAX_DAILY_NOTIFICATIONS) {
-        console.log(
+        logger.info(
             `[NotificationEngine] Cap reached for ${customerId} (${todayCount}/${MAX_DAILY_NOTIFICATIONS})`
         );
         return { evaluated: 0, dispatched: 0, capped: true };
@@ -600,7 +601,7 @@ export async function evaluateAndDispatchNotifications(
                 eligible.push({ type: trigger.type, result });
             }
         } catch (err) {
-            console.error(`[NotificationEngine] Error evaluating ${trigger.type}:`, err);
+            logger.error(`[NotificationEngine] Error evaluating ${trigger.type}:`, err);
         }
     }
 
@@ -644,11 +645,11 @@ export async function evaluateAndDispatchNotifications(
                     notifType = validTypes.includes(ragResult.type as ValidType)
                         ? (ragResult.type as ValidType)
                         : template.type;
-                    console.log(`[NotificationEngine] RAG content used for ${type}`);
+                    logger.info(`[NotificationEngine] RAG content used for ${type}`);
                 }
             } catch (ragErr) {
                 // RAG failed — use fallback template (already set above)
-                console.warn(`[NotificationEngine] RAG failed for ${type}, using fallback:`, ragErr);
+                logger.warn(`[NotificationEngine] RAG failed for ${type}, using fallback:`, ragErr);
             }
 
             const notification = await createNotification({
@@ -662,14 +663,14 @@ export async function evaluateAndDispatchNotifications(
 
             await recordDispatch(customerId, type, todayStr, notification.id);
             dispatched++;
-            console.log(`[NotificationEngine] Dispatched ${type} for ${customerId}`);
+            logger.info(`[NotificationEngine] Dispatched ${type} for ${customerId}`);
         } catch (err) {
-            console.error(`[NotificationEngine] Error dispatching ${type}:`, err);
+            logger.error(`[NotificationEngine] Error dispatching ${type}:`, err);
         }
     }
 
     const capped = todayCount + dispatched >= MAX_DAILY_NOTIFICATIONS;
-    console.log(
+    logger.info(
         `[NotificationEngine] Done: evaluated=${evaluated} eligible=${eligible.length} dispatched=${dispatched} capped=${capped}`
     );
     return { evaluated, dispatched, capped };

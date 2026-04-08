@@ -93,15 +93,14 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true }));
 
-// B2C-027: Swagger UI (non-production only)
+// B2C-027: Swagger (non-production only — prevents API surface reconnaissance)
 if (process.env.NODE_ENV !== "production") {
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     customCss: ".swagger-ui .topbar { display: none }",
     customSiteTitle: "Nutri B2C API Docs",
   }));
+  app.get("/api-docs.json", (_req, res) => res.json(swaggerSpec));
 }
-// Always expose raw spec for tooling (code generators, Postman import)
-app.get("/api-docs.json", (_req, res) => res.json(swaggerSpec));
 
 
 registerRoutes(app); // must include GET /feed

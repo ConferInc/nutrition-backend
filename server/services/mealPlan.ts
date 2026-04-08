@@ -28,6 +28,7 @@ import { resolveCuisineIds } from "./b2cTaxonomy.js";
 import { ragMealCandidates, toRagScope } from "./ragClient.js";
 import { getHouseholdCombinedPrefs, toRagProfile } from "./memberPrefs.js";
 import { auditMealPlanAgainstGuidelines, formatAuditWarnings } from "./foodPyramidValidator.js";
+import { logger } from "../config/logger.js";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -357,7 +358,7 @@ async function getRecipeCandidates(
         graphReasons: c.reasons,
       }));
     } else {
-      console.warn("[RAG] Meal candidates have non-UUID IDs, falling back to SQL catalog");
+      logger.warn("[RAG] Meal candidates have non-UUID IDs, falling back to SQL catalog");
     }
   }
 
@@ -520,7 +521,7 @@ export async function generateMealPlan(
     (m) => validRecipeIds.has(m.recipeId) && allowedMealTypes.has(m.mealType)
   );
 
-  console.log("[MealPlan] Validation:", {
+  logger.info("[MealPlan] Validation:", {
     totalLLMMeals: llmResult.meals.length,
     validMeals: validatedMeals.length,
     invalidRecipeIds: normalizedMeals
@@ -550,16 +551,16 @@ export async function generateMealPlan(
   let totalCost = 0;
   let totalCalories = 0;
 
-  console.log("[MealPlan] Fetching nutrition for", validatedMeals.length, "unique recipes…");
+  logger.info("[MealPlan] Fetching nutrition for", validatedMeals.length, "unique recipes…");
   const nutritionSnapshots = new Map<string, NutritionSnapshot>();
   const uniqueRecipeIds = [...new Set(validatedMeals.map((m) => m.recipeId))];
   for (const rid of uniqueRecipeIds) {
     nutritionSnapshots.set(rid, await getRecipeNutrition(rid));
   }
-  console.log("[MealPlan] Nutrition fetched for", nutritionSnapshots.size, "recipes");
+  logger.info("[MealPlan] Nutrition fetched for", nutritionSnapshots.size, "recipes");
 
   try {
-    console.log("[MealPlan] Inserting meal plan into DB…");
+    logger.info("[MealPlan] Inserting meal plan into DB…");
     // B2C-038: Wrap all writes in a transaction to prevent orphaned plan rows
     const { plan, insertedItems } = await db.transaction(async (tx) => {
       const planRows = await tx
@@ -588,12 +589,12 @@ export async function generateMealPlan(
         .returning();
 
       const plan = planRows[0];
-      console.log("[MealPlan] Plan inserted:", plan.id);
+      logger.info("[MealPlan] Plan inserted:", plan.id);
 
       const itemValues = validatedMeals.map((meal) => {
         const nutrition = nutritionSnapshots.get(meal.recipeId);
         if (!nutrition) {
-          console.error("[MealPlan] Missing nutrition for recipeId:", meal.recipeId);
+          logger.error("[MealPlan] Missing nutrition for recipeId:", meal.recipeId);
         }
         const safeNutrition = nutrition || { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sugarG: 0, sodiumMg: 0 };
         const cost = meal.estimatedCost ?? null;
@@ -614,9 +615,9 @@ export async function generateMealPlan(
         };
       });
 
-      console.log("[MealPlan] Inserting", itemValues.length, "meal items…");
+      logger.info("[MealPlan] Inserting", itemValues.length, "meal items…");
       const insertedItems = await tx.insert(mealPlanItems).values(itemValues).returning();
-      console.log("[MealPlan] Items inserted:", insertedItems.length);
+      logger.info("[MealPlan] Items inserted:", insertedItems.length);
 
       await tx
         .update(mealPlans)
@@ -625,13 +626,13 @@ export async function generateMealPlan(
           totalCalories,
         })
         .where(eq(mealPlans.id, plan.id));
-      console.log("[MealPlan] Plan updated with totals");
+      logger.info("[MealPlan] Plan updated with totals");
 
       return { plan, insertedItems };
     }); // end db.transaction()
 
     const hydratedItems = await hydrateItems(insertedItems);
-    console.log("[MealPlan] Hydration complete");
+    logger.info("[MealPlan] Hydration complete");
 
     // PRD-34: USDA Food Pyramid audit
     const primaryCalTarget = members[0]?.calorieTarget ?? 2000;
@@ -646,7 +647,7 @@ export async function generateMealPlan(
     );
     const foodGroupWarnings = formatAuditWarnings(foodGroupAudit);
     if (foodGroupWarnings.length > 0) {
-      console.warn("[MealPlan] USDA food group warnings:", foodGroupWarnings);
+      logger.warn("[MealPlan] USDA food group warnings:", foodGroupWarnings);
     }
 
     return {
@@ -670,8 +671,8 @@ export async function generateMealPlan(
       })(),
     };
   } catch (dbError: any) {
-    console.error("[MealPlan] Post-LLM DB operation failed:", dbError?.message || dbError);
-    console.error("[MealPlan] Full error:", dbError);
+    logger.error("[MealPlan] Post-LLM DB operation failed:", dbError?.message || dbError);
+    logger.error("[MealPlan] Full error:", dbError);
     throw dbError;
   }
 }

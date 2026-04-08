@@ -3,6 +3,7 @@
 import cron from "node-cron";
 import { executeRaw } from "../config/database.js";
 import { evaluateAndDispatchNotifications } from "./notificationEngine.js";
+import { logger } from "../config/logger.js";
 
 const CRON_ENABLED = process.env.NOTIFICATION_CRON_ENABLED === "true";
 const MORNING_SCHEDULE = process.env.NOTIFICATION_CRON_MORNING ?? "0 8 * * *";
@@ -12,7 +13,7 @@ const CLEANUP_SCHEDULE = process.env.NOTIFICATION_CLEANUP_CRON ?? "0 3 * * 0"; /
 
 async function runNotificationBatch(): Promise<void> {
   const startMs = Date.now();
-  console.log(`[scheduler] Notification batch starting...`);
+  logger.info(`[scheduler] Notification batch starting...`);
 
   try {
     // Fetch active customers who have used the platform recently (last 7 days)
@@ -41,11 +42,11 @@ async function runNotificationBatch(): Promise<void> {
     }
 
     const elapsedMs = Date.now() - startMs;
-    console.log(
+    logger.info(
       `[scheduler] Notification batch complete: ${success} sent, ${errors} failed, ${elapsedMs}ms`
     );
   } catch (err) {
-    console.error("[scheduler] Notification batch failed:", err);
+    logger.error("[scheduler] Notification batch failed:", err);
   }
 }
 
@@ -53,7 +54,7 @@ async function runNotificationBatch(): Promise<void> {
 
 async function runNotificationCleanup(): Promise<void> {
   const startMs = Date.now();
-  console.log("[scheduler] Notification cleanup starting...");
+  logger.info("[scheduler] Notification cleanup starting...");
 
   try {
     // Purge ALL notifications (read + unread) older than 30 days
@@ -77,33 +78,33 @@ async function runNotificationCleanup(): Promise<void> {
     const affectedDispatchCustomers = [...new Set(purgedRows.map(r => r.b2c_customer_id))];
 
     const elapsedMs = Date.now() - startMs;
-    console.log(
+    logger.info(
       `[scheduler] Cleanup done: ${deletedRows.length} notifications (${affectedCustomers.length} customers), ` +
       `${purgedRows.length} dispatch logs (${affectedDispatchCustomers.length} customers) purged (${elapsedMs}ms)`
     );
     if (affectedCustomers.length > 0) {
-      console.log(`[scheduler] Affected notification customers: ${affectedCustomers.join(", ")}`);
+      logger.info(`[scheduler] Affected notification customers: ${affectedCustomers.join(", ")}`);
     }
     if (affectedDispatchCustomers.length > 0) {
-      console.log(`[scheduler] Affected dispatch log customers: ${affectedDispatchCustomers.join(", ")}`);
+      logger.info(`[scheduler] Affected dispatch log customers: ${affectedDispatchCustomers.join(", ")}`);
     }
   } catch (err) {
-    console.error("[scheduler] Notification cleanup failed:", err);
+    logger.error("[scheduler] Notification cleanup failed:", err);
   }
 }
 
 export function initScheduler(): void {
   if (!CRON_ENABLED) {
-    console.log("[scheduler] Notification cron disabled (NOTIFICATION_CRON_ENABLED != true)");
+    logger.info("[scheduler] Notification cron disabled (NOTIFICATION_CRON_ENABLED != true)");
     return;
   }
 
   if (!cron.validate(MORNING_SCHEDULE)) {
-    console.error(`[scheduler] Invalid morning cron: ${MORNING_SCHEDULE}`);
+    logger.error(`[scheduler] Invalid morning cron: ${MORNING_SCHEDULE}`);
     return;
   }
   if (!cron.validate(EVENING_SCHEDULE)) {
-    console.error(`[scheduler] Invalid evening cron: ${EVENING_SCHEDULE}`);
+    logger.error(`[scheduler] Invalid evening cron: ${EVENING_SCHEDULE}`);
     return;
   }
 
@@ -117,7 +118,7 @@ export function initScheduler(): void {
     timezone: "America/New_York",
   });
 
-  console.log(
+  logger.info(
     `[scheduler] Notification cron active: morning=${MORNING_SCHEDULE}, evening=${EVENING_SCHEDULE}, cleanup=${CLEANUP_SCHEDULE}`
   );
 }

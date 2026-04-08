@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────
 
 import type { RecommendationContext } from "./contextBuilder.js";
+import { logger } from "../config/logger.js";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -152,7 +153,7 @@ async function callRag<T>(
     const ragKey = process.env.RAG_API_KEY;
 
     if (!ragUrl) {
-        console.warn("[RAG] RAG_API_URL not configured — falling back to SQL");
+        logger.warn("[RAG] RAG_API_URL not configured — falling back to SQL");
         return null;
     }
 

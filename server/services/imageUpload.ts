@@ -1,11 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+import { logger } from "../config/logger.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BUCKET_NAME = "recipe-images";
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    console.warn("Supabase Storage not configured: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for image uploads");
+    logger.warn("Supabase Storage not configured: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for image uploads");
 }
 
 let _supabase: ReturnType<typeof createClient> | null = null;
@@ -73,7 +74,7 @@ export async function deleteRecipeImage(
     const { error } = await supabase.storage.from(BUCKET_NAME).remove(paths);
 
     if (error) {
-        console.warn(`Failed to delete recipe image: ${error.message}`);
+        logger.warn(`Failed to delete recipe image: ${error.message}`);
         // Don't throw — image deletion is best-effort
     }
 }

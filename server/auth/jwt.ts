@@ -1,5 +1,6 @@
 import { account } from "../config/appwrite.js";
 import { verifyAdminStatus } from "../config/appwrite.js";
+import { logger } from "../config/logger.js";
 
 export interface UserContext {
   userId: string;
@@ -34,7 +35,7 @@ export async function verifyAppwriteJWT(jwt: string): Promise<UserContext> {
       name: decoded.name ?? null,
     };
   } catch (error) {
-    console.error("JWT verification failed:", error);
+    logger.error("JWT verification failed:", error);
     throw new Error("Invalid or expired JWT token");
   }
 }

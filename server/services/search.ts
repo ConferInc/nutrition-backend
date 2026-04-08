@@ -12,6 +12,7 @@ import { ragSearch } from "./ragClient.js";
 import { getMemberPrefs, toRagProfile } from "./memberPrefs.js";
 import { getOrCreateHousehold } from "./household.js";
 import { buildRecommendationContext } from "./contextBuilder.js";
+import { logger } from "../config/logger.js";
 
 export interface SearchParams {
   q?: string;
@@ -212,7 +213,7 @@ export async function searchRecipes(params: SearchParams): Promise<SearchResult[
       };
     });
   } catch (error) {
-    console.error("Search error:", error);
+    logger.error("Search error:", error);
     throw new Error("Recipe search failed");
   }
 }
@@ -288,7 +289,7 @@ export async function getPopularRecipes(limit: number = 20): Promise<any[]> {
     );
     return results;
   } catch (error) {
-    console.error("Popular recipes error:", error);
+    logger.error("Popular recipes error:", error);
     throw new Error("Failed to fetch popular recipes");
   }
 }
@@ -362,10 +363,10 @@ export async function searchRecipesWithRAG(
             reasons: ragResult.results[i]?.reasons ?? [],
           }));
         } catch (err) {
-          console.warn("[RAG] Search hydration failed, falling back to SQL:", err);
+          logger.warn("[RAG] Search hydration failed, falling back to SQL:", err);
         }
       } else {
-        console.warn("[RAG] Search results have non-UUID IDs, falling back to SQL");
+        logger.warn("[RAG] Search results have non-UUID IDs, falling back to SQL");
       }
     }
     // ragResult is null or empty → fall through to SQL

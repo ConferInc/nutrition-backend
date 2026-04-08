@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { logger } from "../config/logger.js";
 
 export interface ProblemDetail {
   type: string;
@@ -28,7 +29,15 @@ export function errorHandler(err: any, req: Request, res: Response, next: NextFu
     return next(err);
   }
   
-  console.error('Error:', err);
+  // Log safe metadata only — never dump raw error objects (may contain PHI in stack/query params)
+  logger.error({
+    method: req.method,
+    url: req.url,
+    status: err instanceof AppError ? err.status : (err?.status || err?.statusCode || 500),
+    message: err?.message || "Unknown error",
+    name: err?.name,
+    code: err?.code, // PostgreSQL error codes (e.g. 23505, 42703)
+  }, "Request error");
   
   let problemDetail: ProblemDetail;
   

@@ -3,6 +3,7 @@ import { recipes, auditLog } from "../../shared/goldSchema.js";
 import { eq, desc } from "drizzle-orm";
 import type { InsertRecipe } from "../../shared/goldSchema.js";
 import { auditLogEntry } from "../middleware/audit.js";
+import { logger } from "../config/logger.js";
 
 export async function createCuratedRecipe(adminUserId: string, recipeData: InsertRecipe, reason?: string) {
   const recipe = await db
@@ -156,7 +157,7 @@ export async function getDashboardStats() {
       pendingReview: 0,
     };
   } catch (error) {
-    console.error("Dashboard stats error:", error);
+    logger.error("Dashboard stats error:", error);
     throw new Error("Failed to get dashboard stats");
   }
 }
