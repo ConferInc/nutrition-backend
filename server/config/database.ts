@@ -2,7 +2,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as goldSchema from "../../shared/goldSchema.js";
 import { env } from "./env.js";
-import { logger } from "/logger.js";
+import { logger } from "./logger.js";
 
 if (!env.DATABASE_URL) {
   throw new Error("DATABASE_URL environment variable is required");

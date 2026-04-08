@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import app from "./app.js";
 import { queryClient, checkDatabaseHealth } from "./config/database.js";
 import { startNotificationCron } from "./scheduler.js";
-import { logger } from "config/logger.js";
+import { logger } from "./config/logger.js";
 
 // prefer .env.local, fallback to .env (works on Windows too)
 const CWD = process.cwd();
