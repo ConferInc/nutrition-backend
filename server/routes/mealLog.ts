@@ -5,6 +5,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rateLimit.js";
 import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 import { AppError } from "../middleware/errorHandler.js";
+import { auditLogEntry } from "../middleware/audit.js";
 import { trackFeature } from "../services/featureTracking.js";
 import {
   getDailyLog,
@@ -184,6 +185,14 @@ router.post(
       const parsed = addItemSchema.parse(req.body);
       const result = await addMealItem(customerId, parsed);
       trackFeature(customerId, "meal_log", "add_item", { source: parsed.source });
+
+      // ── HIPAA Audit: dietary intake logging ──
+      void auditLogEntry(
+        (req as any).user?.userId, "post_/meal-log/items",
+        "meal_log_items", (result as any)?.id ?? customerId, null, null,
+        undefined, req.ip, req.headers["user-agent"] as string | undefined
+      );
+
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -261,6 +270,14 @@ router.delete(
       const customerId = b2cId(req);
       const { memberId } = memberQuerySchema.parse(req.query ?? {});
       const result = await deleteMealItem(req.params.id, customerId, memberId);
+
+      // ── HIPAA Audit: dietary data removal ──
+      void auditLogEntry(
+        (req as any).user?.userId, "delete_/meal-log/items/:id",
+        "meal_log_items", req.params.id, null, null,
+        undefined, req.ip, req.headers["user-agent"] as string | undefined
+      );
+
       res.json(result);
     } catch (err) {
       next(err);

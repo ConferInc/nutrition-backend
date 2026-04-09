@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────
 
 import { executeRaw } from "../config/database.js";
+import { logger } from "../config/logger.js";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -240,15 +241,14 @@ export async function buildRecommendationContext(
     recentMealIds: recentMeals,
   };
 
-  console.info(JSON.stringify({
+  logger.info({
     event: "context_builder_output",
     mealSlot: context.mealTimeSlot,
     season: context.season,
     cuisines: context.cuisinePreferences.slice(0, 3),
     targetCal: context.targetCalories,
     recentMeals: context.recentMealIds.length,
-    ts: new Date().toISOString(),
-  }));
+  }, "context_builder_output");
 
   return context;
 }
