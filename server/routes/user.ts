@@ -3,6 +3,7 @@ import type { Request } from "express";
 import { z } from "zod";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rateLimit.js";
+import { auditLogEntry } from "../middleware/audit.js";
 import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 import {
   resolveDietIds,
@@ -206,6 +207,13 @@ router.patch("/profile", authMiddleware, rateLimitMiddleware, async (req, res, n
       email: body.email,
     });
 
+    // ── HIPAA Audit: PII mutation ──
+    void auditLogEntry(
+      (req as any).user?.userId, "patch_/user/profile",
+      "b2c_customers", id, null, { fields: Object.keys(body) },
+      undefined, req.ip, req.headers["user-agent"] as string | undefined
+    );
+
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -228,6 +236,14 @@ router.delete("/profile", authMiddleware, rateLimitMiddleware, async (req, res, 
     await db.delete(b2cCustomerDietaryPreferences).where(eq(b2cCustomerDietaryPreferences.b2cCustomerId, id));
     await db.delete(b2cCustomerAllergens).where(eq(b2cCustomerAllergens.b2cCustomerId, id));
     await db.delete(b2cCustomerHealthConditions).where(eq(b2cCustomerHealthConditions.b2cCustomerId, id));
+
+    // ── HIPAA Audit: PHI deletion ──
+    void auditLogEntry(
+      (req as any).user?.userId, "delete_/user/profile",
+      "b2c_customer_health_profiles", id, null, null,
+      "user_initiated_profile_data_wipe", req.ip, req.headers["user-agent"] as string | undefined
+    );
+
     res.status(204).end();
   } catch (err) {
     next(err);
@@ -403,6 +419,13 @@ router.patch("/health", authMiddleware, rateLimitMiddleware, async (req, res, ne
       onboardingComplete: body.onboardingComplete,
     });
 
+    // ── HIPAA Audit: PHI mutation ──
+    void auditLogEntry(
+      (req as any).user?.userId, "patch_/user/health",
+      "b2c_customer_health_profiles", id, null, { fields: Object.keys(body) },
+      undefined, req.ip, req.headers["user-agent"] as string | undefined
+    );
+
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -564,6 +587,14 @@ router.post("/my-recipes", authMiddleware, rateLimitMiddleware, async (req, res,
   try {
     const id = b2cCustomerId(req);
     const recipe = await createUserRecipe(id, req.body ?? {});
+
+    // ── HIPAA Audit: content creation ──
+    void auditLogEntry(
+      (req as any).user?.userId, "post_/user/my-recipes",
+      "recipes", (recipe as any)?.id ?? id, null, null,
+      undefined, req.ip, req.headers["user-agent"] as string | undefined
+    );
+
     res.status(201).json(recipe);
   } catch (err) {
     next(err);
@@ -609,6 +640,14 @@ router.patch("/my-recipes/:id", authMiddleware, rateLimitMiddleware, async (req,
   try {
     const id = b2cCustomerId(req);
     const recipe = await updateUserRecipe(id, req.params.id, req.body ?? {});
+
+    // ── HIPAA Audit: content update ──
+    void auditLogEntry(
+      (req as any).user?.userId, "patch_/user/my-recipes/:id",
+      "recipes", req.params.id, null, null,
+      undefined, req.ip, req.headers["user-agent"] as string | undefined
+    );
+
     res.json(recipe);
   } catch (err) {
     next(err);
@@ -633,6 +672,14 @@ router.post("/my-recipes/:id/share", authMiddleware, rateLimitMiddleware, async 
   try {
     const id = b2cCustomerId(req);
     const result = await shareUserRecipe(id, req.params.id);
+
+    // ── HIPAA Audit: visibility change ──
+    void auditLogEntry(
+      (req as any).user?.userId, "post_/user/my-recipes/:id/share",
+      "recipes", req.params.id, null, null,
+      undefined, req.ip, req.headers["user-agent"] as string | undefined
+    );
+
     res.json(result);
   } catch (err) {
     next(err);
@@ -657,6 +704,14 @@ router.post("/my-recipes/:id/unshare", authMiddleware, rateLimitMiddleware, asyn
   try {
     const id = b2cCustomerId(req);
     const recipe = await unshareUserRecipe(id, req.params.id);
+
+    // ── HIPAA Audit: visibility change ──
+    void auditLogEntry(
+      (req as any).user?.userId, "post_/user/my-recipes/:id/unshare",
+      "recipes", req.params.id, null, null,
+      undefined, req.ip, req.headers["user-agent"] as string | undefined
+    );
+
     res.json(recipe);
   } catch (err) {
     next(err);
@@ -681,6 +736,14 @@ router.post("/my-recipes/:id/submit", authMiddleware, rateLimitMiddleware, async
   try {
     const id = b2cCustomerId(req);
     const recipe = await submitForReview(id, req.params.id);
+
+    // ── HIPAA Audit: content submission ──
+    void auditLogEntry(
+      (req as any).user?.userId, "post_/user/my-recipes/:id/submit",
+      "recipes", req.params.id, null, null,
+      undefined, req.ip, req.headers["user-agent"] as string | undefined
+    );
+
     res.json(recipe);
   } catch (err) {
     next(err);
@@ -767,6 +830,13 @@ router.delete("/account", authMiddleware, rateLimitMiddleware, async (req, res, 
     // ── Appwrite cleanup (after Supabase commit succeeds) ──
     await deleteAppwriteDocuments(awUserId);
     await deleteAppwriteUser(awUserId);
+
+    // ── HIPAA Audit: full account deletion ──
+    void auditLogEntry(
+      (req as any).user?.userId, "delete_/user/account",
+      "b2c_customers", id, null, null,
+      "user_initiated_account_deletion", req.ip, req.headers["user-agent"] as string | undefined
+    );
 
     res.status(204).end();
   } catch (err) {
@@ -1030,6 +1100,13 @@ router.patch("/settings", authMiddleware, rateLimitMiddleware, async (req, res, 
         await db.insert(b2cCustomerHealthProfiles).values(healthPayload as any);
       }
     }
+
+    // ── HIPAA Audit: settings mutation ──
+    void auditLogEntry(
+      (req as any).user?.userId, "patch_/user/settings",
+      "b2c_customer_settings", id, null, { fields: Object.keys(body) },
+      undefined, req.ip, req.headers["user-agent"] as string | undefined
+    );
 
     res.json({ ok: true });
 

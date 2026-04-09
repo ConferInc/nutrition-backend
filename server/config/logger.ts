@@ -8,6 +8,7 @@ const redactPaths = [
   // PII
   "*.email", "*.phone", "*.full_name", "*.date_of_birth",
   "*.password", "*.token", "*.jwt", "*.appwrite_user_id",
+  "req.headers.authorization",
   // PHI
   "*.weight_kg", "*.height_cm", "*.bmi", "*.bmr", "*.tdee",
   "*.health_goal", "*.conditions", "*.allergens", "*.intolerances",

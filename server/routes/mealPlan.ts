@@ -5,6 +5,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rateLimit.js";
 import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
 import { AppError } from "../middleware/errorHandler.js";
+import { auditLogEntry } from "../middleware/audit.js";
 import { trackFeature } from "../services/featureTracking.js";
 import {
   generateMealPlan,
@@ -119,6 +120,14 @@ router.post(
       const parsed = generateSchema.parse(req.body);
       const result = await generateMealPlan(customerId, parsed);
       trackFeature(customerId, "meal_plan", "generate", { mealsPerDay: parsed.mealsPerDay.length });
+
+      // ── HIPAA Audit: AI meal plan generation ──
+      void auditLogEntry(
+        (req as any).user?.userId, "post_/meal-plans/generate",
+        "meal_plans", (result as any)?.id ?? customerId, null, null,
+        undefined, req.ip, req.headers["user-agent"] as string | undefined
+      );
+
       res.status(201).json(result);
     } catch (err) {
       next(err);
@@ -427,6 +436,14 @@ router.delete(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await deletePlan(req.params.id);
+
+      // ── HIPAA Audit: meal plan removal ──
+      void auditLogEntry(
+        (req as any).user?.userId, "delete_/meal-plans/:id",
+        "meal_plans", req.params.id, null, null,
+        undefined, req.ip, req.headers["user-agent"] as string | undefined
+      );
+
       res.json(result);
     } catch (err) {
       next(err);
