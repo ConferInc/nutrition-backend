@@ -219,7 +219,7 @@ export async function getPersonalizedFeed(
 
     const ids = rows.map((r: any) => r.id);
 
-    console.info(JSON.stringify({
+    logger.info({
       event: "feed_sql_result",
       count: ids.length,
       topIds: ids.slice(0, 5),
@@ -228,8 +228,7 @@ export async function getPersonalizedFeed(
         diets: prefs.dietIds.length, allergens: prefs.allergenIds.length,
         conditions: prefs.conditionIds.length, dislikes: dislikes.length,
       },
-      ts: new Date().toISOString(),
-    }));
+    }, "feed_sql_result");
 
     const nutritionMap = await getRecipeNutritionMap(ids);
     const allergenMap = await getRecipeAllergenMap(ids);
@@ -346,12 +345,11 @@ export async function getPersonalizedFeedWithRAG(
   });
 
   if (interactions === 0) {
-    console.info(JSON.stringify({
+    logger.info({
       event: "feed_source_decision", source: "SQL_COLD_START",
       customerId: b2cCustomerId, memberId: memberId || null,
       interactionCount: 0, totalElapsedMs: Date.now() - feedStart,
-      ts: new Date().toISOString(),
-    }));
+    }, "feed_source_decision");
     return getPersonalizedFeed(b2cCustomerId, limit, offset, memberId, context);
   }
 
@@ -396,25 +394,23 @@ export async function getPersonalizedFeedWithRAG(
         const ragIdSet = new Set(ragResults.map(r => r.recipe.id));
         const dedupedSql = sqlResults.filter(r => !ragIdSet.has(r.recipe.id));
         const combined = [...ragResults, ...dedupedSql].slice(0, limit);
-        console.info(JSON.stringify({
+        logger.info({
           event: "feed_source_decision", source: "RAG_PLUS_SQL",
           customerId: b2cCustomerId, memberId: memberId || null,
           interactionCount: interactions,
           ragCount: ragResults.length, sqlSupplement: dedupedSql.length,
           totalElapsedMs: Date.now() - feedStart,
-          ts: new Date().toISOString(),
-        }));
+        }, "feed_source_decision");
         return combined;
       }
 
-      console.info(JSON.stringify({
+      logger.info({
         event: "feed_source_decision", source: "RAG",
         customerId: b2cCustomerId, memberId: memberId || null,
         interactionCount: interactions,
         ragCount: ragResults.length,
         totalElapsedMs: Date.now() - feedStart,
-        ts: new Date().toISOString(),
-      }));
+      }, "feed_source_decision");
       return ragResults;
     } catch (hydrationErr) {
       logger.warn("[RAG] Feed hydration failed (non-UUID IDs?), falling back to SQL:", hydrationErr);
@@ -422,14 +418,13 @@ export async function getPersonalizedFeedWithRAG(
   }
 
   // SQL fallback — existing logic (popularity + recency)
-  console.info(JSON.stringify({
+  logger.info({
     event: "feed_source_decision", source: "SQL_FALLBACK",
     customerId: b2cCustomerId, memberId: memberId || null,
     interactionCount: interactions,
     ragCount: graphFeed?.results?.length ?? 0,
     totalElapsedMs: Date.now() - feedStart,
-    ts: new Date().toISOString(),
-  }));
+  }, "feed_source_decision");
   return getPersonalizedFeed(b2cCustomerId, limit, offset, memberId, context);
 }
 

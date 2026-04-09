@@ -69,11 +69,10 @@ function shouldAllowRequest(): boolean {
             const prev = circuitState;
             circuitState = "HALF_OPEN";
             halfOpenProbeInFlight = false;
-            console.info(JSON.stringify({
+            logger.info({
                 event: "circuit_transition", from: prev, to: "HALF_OPEN",
                 reason: "cooldown_expired", consecutiveFailures,
-                ts: new Date().toISOString(),
-            }));
+            }, "circuit_transition");
             // fall through to HALF_OPEN check below
         } else {
             return false;
@@ -93,11 +92,10 @@ function shouldAllowRequest(): boolean {
 function recordSuccess(): void {
     const prevState = circuitState;
     if (circuitState !== "CLOSED") {
-        console.info(JSON.stringify({
+        logger.info({
             event: "circuit_transition", from: prevState, to: "CLOSED",
             reason: "request_succeeded", consecutiveFailures: 0,
-            ts: new Date().toISOString(),
-        }));
+        }, "circuit_transition");
     }
     circuitState = "CLOSED";
     consecutiveFailures = 0;
@@ -112,11 +110,10 @@ function recordFailure(): void {
     if (consecutiveFailures >= FAILURE_THRESHOLD && circuitState !== "OPEN") {
         const prevState = circuitState;
         circuitState = "OPEN";
-        console.info(JSON.stringify({
+        logger.info({
             event: "circuit_transition", from: prevState, to: "OPEN",
             consecutiveFailures, cooldownMs: COOLDOWN_MS,
-            ts: new Date().toISOString(),
-        }));
+        }, "circuit_transition");
     }
 }
 
@@ -130,21 +127,20 @@ async function callRag<T>(
 
     // Gate 1: Feature flag
     if (!isFeatureEnabled(feature)) {
-        console.info(JSON.stringify({
+        logger.info({
             event: "rag_skip", feature, reason: "FEATURE_DISABLED",
-            flag: config.flag, ts: new Date().toISOString(),
-        }));
+            flag: config.flag,
+        }, "rag_skip");
         return null;
     }
 
     // Gate 2: Circuit breaker
     if (!shouldAllowRequest()) {
-        console.info(JSON.stringify({
+        logger.info({
             event: "rag_skip", feature, reason: "CIRCUIT_OPEN",
             circuitState, consecutiveFailures,
             cooldownRemainingMs: lastFailureAt ? Math.max(0, COOLDOWN_MS - (Date.now() - lastFailureAt)) : 0,
-            ts: new Date().toISOString(),
-        }));
+        }, "rag_skip");
         return null;
     }
 
@@ -177,13 +173,12 @@ async function callRag<T>(
         const elapsed = Date.now() - startTime;
 
         if (!response.ok) {
-            console.info(JSON.stringify({
+            logger.info({
                 event: "rag_call", feature, endpoint: config.endpoint,
                 status: response.status, ok: false,
                 elapsedMs: elapsed, timeoutMs: config.timeout,
                 circuitState, consecutiveFailures,
-                ts: new Date().toISOString(),
-            }));
+            }, "rag_call");
             recordFailure();
             return null;
         }
@@ -197,13 +192,12 @@ async function callRag<T>(
             : Array.isArray(d?.alternatives) ? d.alternatives.length
             : Array.isArray(d?.substitutions) ? d.substitutions.length
             : 1;
-        console.info(JSON.stringify({
+        logger.info({
             event: "rag_call", feature, endpoint: config.endpoint,
             status: 200, ok: true,
             elapsedMs: elapsed, timeoutMs: config.timeout, resultCount,
             circuitState, consecutiveFailures,
-            ts: new Date().toISOString(),
-        }));
+        }, "rag_call");
         recordSuccess();
         return data;
     } catch (error: unknown) {
@@ -211,14 +205,13 @@ async function callRag<T>(
         const elapsed = Date.now() - startTime;
 
         const errStatus = (error instanceof Error && error.name === "AbortError") ? "TIMEOUT" : "ERROR";
-        console.info(JSON.stringify({
+        logger.info({
             event: "rag_call", feature, endpoint: config.endpoint,
             status: errStatus, ok: false,
             error: (error instanceof Error) ? error.message : String(error),
             elapsedMs: elapsed, timeoutMs: config.timeout,
             circuitState, consecutiveFailures,
-            ts: new Date().toISOString(),
-        }));
+        }, "rag_call");
 
         recordFailure();
         return null;

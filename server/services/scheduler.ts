@@ -53,6 +53,13 @@ async function runNotificationBatch(): Promise<void> {
 // ── Weekly Notification Cleanup ───────────────────────────────────────────
 
 async function runNotificationCleanup(): Promise<void> {
+  // ────────────────────────────────────────────────────────────
+  // ⚠️ COMPLIANCE WARNING — DO NOT MODIFY
+  // The audit_log table has a 6-year mandatory retention requirement
+  // per HIPAA §164.530(j). NEVER add gold.audit_log to any cleanup,
+  // purge, or archival job in this scheduler.
+  // See: docs/hipaa-compliance/data_retention_policy.md
+  // ────────────────────────────────────────────────────────────
   const startMs = Date.now();
   logger.info("[scheduler] Notification cleanup starting...");
 
