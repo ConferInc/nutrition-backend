@@ -1,0 +1,13 @@
+# Secrets from old commits (rotated, no longer in codebase)
+# Commit 32b22d36 by souravpatil1859@gmail.com (2026-02-20)
+32b22d3680a490e62db65bdfd9517535c4b16140:.env:jwt:13
+32b22d3680a490e62db65bdfd9517535c4b16140:.env.local:jwt:13
+32b22d3680a490e62db65bdfd9517535c4b16140:.env:generic-api-key:40
+32b22d3680a490e62db65bdfd9517535c4b16140:.env:generic-api-key:42
+32b22d3680a490e62db65bdfd9517535c4b16140:.env.example:generic-api-key:36
+32b22d3680a490e62db65bdfd9517535c4b16140:.env.example:generic-api-key:38
+32b22d3680a490e62db65bdfd9517535c4b16140:.env.example:generic-api-key:41
+32b22d3680a490e62db65bdfd9517535c4b16140:.env.example:generic-api-key:43
+32b22d3680a490e62db65bdfd9517535c4b16140:.env.example:generic-api-key:50
+# Commit 1fadc7c0 by souravpatil1859@gmail.com (2025-09-05)
+1fadc7c0c4630cf8f698446295165fbe1e5d2890:.env:jwt:13
