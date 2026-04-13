@@ -15,11 +15,30 @@ const redactPaths = [
   "*.health_conditions", "*.dietary_preferences",
 ];
 
-export const logger = pino({
+// Custom Logger interface that accepts the console-style calling convention
+// used throughout the codebase: logger.error("message", data)
+// Pino's strict TS overloads reject this pattern, but it works at runtime.
+type LogFn = {
+  (msg: string, ...args: unknown[]): void;
+  (obj: object, msg?: string, ...args: unknown[]): void;
+};
+
+interface Logger {
+  fatal: LogFn;
+  error: LogFn;
+  warn: LogFn;
+  info: LogFn;
+  debug: LogFn;
+  trace: LogFn;
+  level: string;
+  child(bindings: Record<string, unknown>): Logger;
+}
+
+export const logger: Logger = pino({
   level: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
   redact: { paths: redactPaths, remove: true },
   // Pretty-print in dev, JSON in production (stdout → Docker captures it)
   transport: process.env.NODE_ENV !== "production"
     ? { target: "pino-pretty", options: { colorize: true, translateTime: "SYS:standard" } }
     : undefined,
-});
+}) as unknown as Logger;
