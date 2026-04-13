@@ -1,0 +1,2 @@
+# CI/CD pipeline changes require human review
+.github/workflows/ @ConferInc/odyssey
