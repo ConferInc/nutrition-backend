@@ -947,3 +947,30 @@ export const b2cNpsResponses = gold.table("b2c_nps_responses", {
 });
 
 export type B2cNpsResponse = typeof b2cNpsResponses.$inferSelect;
+
+// ── B2C-BETA: Beta feedback responses ──────────────────────────────────────
+
+export const b2cBetaFeedback = gold.table("b2c_beta_feedback", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  b2cCustomerId: uuid("b2c_customer_id").notNull(),
+  flow: varchar("flow", { length: 30 }).notNull(),
+  questionKey: varchar("question_key", { length: 50 }).notNull(),
+  responseValue: varchar("response_value", { length: 100 }),
+  followUpText: text("follow_up_text"),
+  followUpTags: text("follow_up_tags").array().default([]),
+  isSafetyFlag: boolean("is_safety_flag").default(false),
+  contextMetadata: jsonb("context_metadata").default({}),
+  dismissed: boolean("dismissed").default(false).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const b2cFeedbackThrottle = gold.table("b2c_feedback_throttle", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  b2cCustomerId: uuid("b2c_customer_id").notNull(),
+  flow: varchar("flow", { length: 30 }).notNull(),
+  lastShownAt: timestamp("last_shown_at", { withTimezone: true }).defaultNow().notNull(),
+  sessionCount: integer("session_count").default(0),
+});
+
+export type B2cBetaFeedback = typeof b2cBetaFeedback.$inferSelect;
+export type B2cFeedbackThrottle = typeof b2cFeedbackThrottle.$inferSelect;
