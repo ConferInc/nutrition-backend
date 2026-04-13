@@ -7,6 +7,7 @@ import { createNotification } from "./notifications.js";
 import { getStreak } from "./mealLog.js";
 import { ragNotifications } from "./ragClient.js";
 import { logger } from "../config/logger.js";
+import { isBetaFeedbackEnabled } from "./betaFeedback.js";
 
 // ── PRD-32: Configurable Daily Cap ───────────────────────────────────────────
 
@@ -741,6 +742,9 @@ export async function getActiveCustomerIds(): Promise<string[]> {
  * Intended to be called from the cron job alongside evaluateForCustomer.
  */
 export async function checkFeedbackDay7Followups(): Promise<number> {
+    // Gate: skip if beta feedback is disabled
+    if (!isBetaFeedbackEnabled()) return 0;
+
     try {
         // Find customers whose earliest feedback was exactly 7 days ago
         // and who haven't already received a day7 notification
@@ -751,10 +755,10 @@ export async function checkFeedbackDay7Followups(): Promise<number> {
              GROUP BY bf.b2c_customer_id
              HAVING MIN(bf.created_at)::date = (CURRENT_DATE - INTERVAL '7 days')::date
                AND bf.b2c_customer_id NOT IN (
-                 SELECT n.b2c_customer_id
+                 SELECT n.customer_id
                  FROM gold.b2c_notifications n
                  WHERE n.type = 'system'
-                   AND n.title LIKE '%How are things going%'
+                   AND n.title = 'How are things going? 💬'
                )`,
             []
         );

@@ -89,7 +89,11 @@ export async function recordShown(
        VALUES ($1, $2, NOW(), 1)
        ON CONFLICT (b2c_customer_id, flow)
        DO UPDATE SET last_shown_at = NOW(),
-                     session_count = gold.b2c_feedback_throttle.session_count + 1`,
+                     session_count = CASE
+                       WHEN gold.b2c_feedback_throttle.last_shown_at::date = CURRENT_DATE
+                       THEN gold.b2c_feedback_throttle.session_count + 1
+                       ELSE 1
+                     END`,
       [customerId, flow]
     );
   } catch (err) {

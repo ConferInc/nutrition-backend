@@ -110,6 +110,7 @@ const submitSchema = z.object({
  */
 router.post("/", async (req, res, next) => {
   try {
+    if (!isBetaFeedbackEnabled()) return res.status(404).json({ error: "Beta feedback is disabled" });
     const customerId = b2cCustomerId(req);
     const data = submitSchema.parse(req.body);
     const response = await submitFeedback(customerId, data);
@@ -140,6 +141,7 @@ const dismissSchema = z.object({
  */
 router.post("/dismiss", async (req, res, next) => {
   try {
+    if (!isBetaFeedbackEnabled()) return res.status(404).json({ error: "Beta feedback is disabled" });
     const customerId = b2cCustomerId(req);
     const { flow } = dismissSchema.parse(req.body);
     await dismissFeedback(customerId, flow);
@@ -167,6 +169,7 @@ const shownSchema = z.object({
  */
 router.post("/shown", async (req, res, next) => {
   try {
+    if (!isBetaFeedbackEnabled()) return res.status(404).json({ error: "Beta feedback is disabled" });
     const customerId = b2cCustomerId(req);
     const { flow } = shownSchema.parse(req.body);
     await recordShown(customerId, flow);
