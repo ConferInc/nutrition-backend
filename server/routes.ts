@@ -27,6 +27,7 @@ import uploadsRouter from "./routes/uploads.js";
 import recipeMetaRouter from "./routes/recipeMeta.js";
 import groceryPreferencesRouter from "./routes/groceryPreferences.js";
 import npsRouter from "./routes/nps.js";
+import feedbackRouter from "./routes/feedback.js";
 
 export function registerRoutes(app: Express): void {
   // Global middleware
@@ -60,6 +61,7 @@ export function registerRoutes(app: Express): void {
   app.use("/api/v1/uploads", uploadsRouter);
   app.use("/api/v1/recipe-meta", recipeMetaRouter);
   app.use("/api/v1/nps", npsRouter);
+  app.use("/api/v1/feedback", feedbackRouter);
   // Health checks (no /api prefix)
   app.use("/", healthRouter);
 

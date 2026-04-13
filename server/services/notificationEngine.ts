@@ -42,7 +42,8 @@ type TriggerType =
     | "streak_broken"
     | "suggest_breakfast"
     | "suggest_lunch"
-    | "suggest_dinner";
+    | "suggest_dinner"
+    | "feedback_day7";
 
 // ── Fallback Templates (all 10 user stories) ────────────────────────────────
 
@@ -143,6 +144,14 @@ const FALLBACK_TEMPLATES: Record<TriggerType, FallbackTemplate> = {
         type: "meal",
         action_url: "/search?q=dinner",
     },
+    // AN-13: Day 7 Beta Feedback Follow-Up
+    feedback_day7: {
+        title: "How are things going? 💬",
+        body: "It's been a week since you gave us feedback — we'd love to hear if things have improved!",
+        icon: "💬",
+        type: "system",
+        action_url: "/nutrition",
+    },
 };
 
 // Streak milestones we celebrate
@@ -167,7 +176,34 @@ const TRIGGER_PRIORITY: Record<TriggerType, number> = {
     no_water: 4,
     streak_milestone: 4,
     streak_broken: 4,
+    // P5: Beta feedback follow-ups — lowest priority, educational
+    feedback_day7: 5,
 };
+
+// ── Valid Action URL Prefixes (defense against RAG hallucinated routes) ───────
+
+const VALID_ACTION_URL_PREFIXES = [
+    "/meal-log",
+    "/search",
+    "/nutrition",
+    "/meal-plan",
+    "/grocery-list",
+    "/budget",
+    "/recipes/",       // /recipes/{uuid} — dynamic recipe detail
+    "/recipe-analyzer",
+    "/favorites",
+    "/scan",
+    "/profile",
+    "/settings",
+    "/notifications",
+];
+
+function isValidActionUrl(url: string): boolean {
+    if (!url || !url.startsWith("/")) return false;
+    // Reject bare /recipes (no index page) — must be /recipes/{id}
+    if (url === "/recipes" || url.startsWith("/recipes?")) return false;
+    return VALID_ACTION_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
+}
 
 // ── Timezone Helpers ─────────────────────────────────────────────────────────
 
@@ -638,7 +674,14 @@ export async function evaluateAndDispatchNotifications(
                     title = ragResult.title || title;
                     body = ragResult.body || body;
                     icon = ragResult.icon || icon;
-                    actionUrl = ragResult.action_url || actionUrl;
+                    // Validate RAG action_url against known frontend routes
+                    if (ragResult.action_url && isValidActionUrl(ragResult.action_url)) {
+                        actionUrl = ragResult.action_url;
+                    } else if (ragResult.action_url) {
+                        logger.warn(
+                            `[NotificationEngine] Rejected invalid RAG action_url "${ragResult.action_url}" for ${type}, using fallback "${actionUrl}"`
+                        );
+                    }
                     // Validate RAG type against DB constraint (defense-in-depth)
                     const validTypes = ["meal", "nutrition", "grocery", "budget", "family", "system"] as const;
                     type ValidType = (typeof validTypes)[number];
@@ -687,4 +730,60 @@ export async function getActiveCustomerIds(): Promise<string[]> {
         []
     );
     return (rows as any[]).map((r) => r.b2c_customer_id);
+}
+
+// ── Day 7 Beta Feedback Follow-Up ────────────────────────────────────────────
+
+/**
+ * Check if any customers submitted their first beta feedback exactly 7 days ago
+ * and create a follow-up notification prompting them to try the features again.
+ *
+ * Intended to be called from the cron job alongside evaluateForCustomer.
+ */
+export async function checkFeedbackDay7Followups(): Promise<number> {
+    try {
+        // Find customers whose earliest feedback was exactly 7 days ago
+        // and who haven't already received a day7 notification
+        const rows = await executeRaw(
+            `SELECT bf.b2c_customer_id
+             FROM gold.b2c_beta_feedback bf
+             WHERE bf.dismissed = false
+             GROUP BY bf.b2c_customer_id
+             HAVING MIN(bf.created_at)::date = (CURRENT_DATE - INTERVAL '7 days')::date
+               AND bf.b2c_customer_id NOT IN (
+                 SELECT n.b2c_customer_id
+                 FROM gold.b2c_notifications n
+                 WHERE n.type = 'system'
+                   AND n.title LIKE '%How are things going%'
+               )`,
+            []
+        );
+
+        const template = FALLBACK_TEMPLATES.feedback_day7;
+        let created = 0;
+
+        for (const row of rows as any[]) {
+            try {
+                await createNotification({
+                    customerId: row.b2c_customer_id,
+                    type: template.type,
+                    title: template.title,
+                    body: template.body,
+                    icon: template.icon,
+                    actionUrl: template.action_url,
+                });
+                created++;
+            } catch (err) {
+                logger.error(`[NotificationEngine] Day7 follow-up failed for ${row.b2c_customer_id}:`, err);
+            }
+        }
+
+        if (created > 0) {
+            logger.info(`[NotificationEngine] Day7 feedback follow-ups: ${created} created`);
+        }
+        return created;
+    } catch (err) {
+        logger.error("[NotificationEngine] checkFeedbackDay7Followups failed:", err);
+        return 0;
+    }
 }
