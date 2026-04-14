@@ -31,7 +31,6 @@ networks:
   coolify:
     external: true
     name: coolify
-    attachable: true
   supabase:
     external: true
     name: wk8c40o0kokcogw4wksc8s48
