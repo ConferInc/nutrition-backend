@@ -1,0 +1,37 @@
+## ---------- Docker Compose for Coolify Deployment ----------
+## Provides multi-network support so the backend can reach both
+## the Coolify proxy (coolify network) and Supabase DB (supabase network).
+##
+## USAGE: In Coolify, switch build pack from "Dockerfile" to "Docker Compose"
+##        and enable "Is Raw Compose Deployment Enabled" in Advanced settings.
+##        Environment variables are injected by Coolify into .env file.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${COOLIFY_CONTAINER_NAME:-nutri-b2c-backend}
+    restart: unless-stopped
+    expose:
+      - "5000"
+    networks:
+      - coolify
+      - supabase
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+networks:
+  coolify:
+    external: true
+    name: coolify
+    attachable: true
+  supabase:
+    external: true
+    name: wk8c40o0kokcogw4wksc8s48
