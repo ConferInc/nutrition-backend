@@ -188,3 +188,36 @@ describe("formatAuditWarnings", () => {
     assert.ok(warnings[1].includes("Whole Grains"));
   });
 });
+
+// Mirrors getSkippedGroups in foodPyramidValidator.ts (diet-aware audit)
+const DAIRY_CONFLICTING_DIETS = ["vegan", "dairy-free", "lactose-free", "paleo"];
+const GRAIN_CONFLICTING_DIETS = ["keto", "low-carb", "grain-free", "paleo", "carnivore"];
+const FRUIT_CONFLICTING_DIETS = ["carnivore"];
+const VEGETABLE_CONFLICTING_DIETS = ["carnivore"];
+
+function skippedGroupsForDiets(memberDiets: string[]): Set<string> {
+  const skipped = new Set<string>();
+  const dietsLower = memberDiets.map((d) => d.toLowerCase());
+  if (dietsLower.some((d) => DAIRY_CONFLICTING_DIETS.includes(d))) skipped.add("dairy");
+  if (dietsLower.some((d) => GRAIN_CONFLICTING_DIETS.includes(d))) skipped.add("whole_grains");
+  if (dietsLower.some((d) => FRUIT_CONFLICTING_DIETS.includes(d))) skipped.add("fruits");
+  if (dietsLower.some((d) => VEGETABLE_CONFLICTING_DIETS.includes(d))) skipped.add("vegetables");
+  return skipped;
+}
+
+describe("diet-based food group skips (mirrors production)", () => {
+  it("vegan skips dairy", () => {
+    assert.ok(skippedGroupsForDiets(["vegan"]).has("dairy"));
+  });
+
+  it("keto skips whole_grains", () => {
+    assert.ok(skippedGroupsForDiets(["keto"]).has("whole_grains"));
+  });
+
+  it("carnivore skips fruits, vegetables, and grains", () => {
+    const s = skippedGroupsForDiets(["Carnivore"]);
+    assert.ok(s.has("fruits"));
+    assert.ok(s.has("vegetables"));
+    assert.ok(s.has("whole_grains"));
+  });
+});

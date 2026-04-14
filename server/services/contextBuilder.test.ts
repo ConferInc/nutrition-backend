@@ -121,3 +121,63 @@ describe("isNorthernHemisphere", () => {
     assert.ok(isNorthernHemisphere("Europe/Berlin"));
   });
 });
+
+/** Same hour thresholds as deriveMealTimeSlot in contextBuilder.ts, with fixed `now`. */
+function deriveMealTimeSlotAt(timezone: string, now: Date): MealTimeSlot {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    hour12: false,
+    timeZone: timezone,
+  }).formatToParts(now);
+  const hourPart = parts.find((p) => p.type === "hour");
+  const localHour = parseInt(hourPart?.value ?? "12", 10);
+  if (localHour >= 5 && localHour < 12) return "morning";
+  if (localHour >= 12 && localHour < 17) return "afternoon";
+  if (localHour >= 17 && localHour < 22) return "evening";
+  return "late_night";
+}
+
+describe("deriveMealTimeSlot boundaries (UTC, fixed clock)", () => {
+  it("04:00 UTC is late_night", () => {
+    const now = new Date(Date.UTC(2026, 5, 15, 4, 30, 0));
+    assert.equal(deriveMealTimeSlotAt("UTC", now), "late_night");
+  });
+
+  it("05:00 UTC is morning", () => {
+    const now = new Date(Date.UTC(2026, 5, 15, 5, 0, 0));
+    assert.equal(deriveMealTimeSlotAt("UTC", now), "morning");
+  });
+
+  it("11:59 UTC morning and 12:00 UTC afternoon", () => {
+    assert.equal(
+      deriveMealTimeSlotAt("UTC", new Date(Date.UTC(2026, 5, 15, 11, 59, 0))),
+      "morning"
+    );
+    assert.equal(
+      deriveMealTimeSlotAt("UTC", new Date(Date.UTC(2026, 5, 15, 12, 0, 0))),
+      "afternoon"
+    );
+  });
+
+  it("16:59 UTC afternoon and 17:00 UTC evening", () => {
+    assert.equal(
+      deriveMealTimeSlotAt("UTC", new Date(Date.UTC(2026, 5, 15, 16, 59, 0))),
+      "afternoon"
+    );
+    assert.equal(
+      deriveMealTimeSlotAt("UTC", new Date(Date.UTC(2026, 5, 15, 17, 0, 0))),
+      "evening"
+    );
+  });
+
+  it("21:59 UTC evening and 22:00 UTC late_night", () => {
+    assert.equal(
+      deriveMealTimeSlotAt("UTC", new Date(Date.UTC(2026, 5, 15, 21, 59, 0))),
+      "evening"
+    );
+    assert.equal(
+      deriveMealTimeSlotAt("UTC", new Date(Date.UTC(2026, 5, 15, 22, 0, 0))),
+      "late_night"
+    );
+  });
+});

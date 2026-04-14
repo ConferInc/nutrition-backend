@@ -1,6 +1,14 @@
 import type { Request } from "express";
 import { UserContext } from "./jwt.js";
-import { auditImpersonation } from "../services/admin.js";
+
+/** Optional override for unit tests — avoids loading DB-backed admin service. */
+export type AuditImpersonationFn = (
+  adminUserId: string,
+  targetUserId: string,
+  url: string,
+  ip?: string,
+  userAgent?: string
+) => Promise<void>;
 
 export interface AdminContext extends UserContext {
   effectiveUserId: string;
@@ -9,14 +17,17 @@ export interface AdminContext extends UserContext {
 
 export async function handleAdminImpersonation(
   request: Request,
-  userContext: UserContext
+  userContext: UserContext,
+  auditImpersonationImpl?: AuditImpersonationFn
 ): Promise<AdminContext> {
   const actAsUser = request.headers['x-act-as-user'] as string;
   
   // Only allow impersonation for GET requests and admin users
   if (actAsUser && request.method === 'GET' && userContext.isAdmin) {
-    // Audit the impersonation
-    await auditImpersonation(
+    const audit =
+      auditImpersonationImpl ??
+      (await import("../services/admin.js")).auditImpersonation;
+    await audit(
       userContext.userId,
       actAsUser,
       request.url,

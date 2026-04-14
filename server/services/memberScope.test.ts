@@ -27,6 +27,33 @@ test("resolveTargetMemberFromRows allows same-household member selection", () =>
   assert.equal(scope.householdId, "hh-1");
 });
 
+test("resolveTargetMemberFromRows throws 404 when actor is missing", () => {
+  assert.throws(
+    () => resolveTargetMemberFromRows(null, { id: "m", householdId: "h" }, "m"),
+    (err: unknown) => err instanceof AppError && (err as AppError).status === 404
+  );
+});
+
+test("resolveTargetMemberFromRows throws 422 when actor has no household", () => {
+  assert.throws(
+    () =>
+      resolveTargetMemberFromRows({ id: "a1", householdId: null }, { id: "m", householdId: "h" }, "m"),
+    (err: unknown) => err instanceof AppError && (err as AppError).status === 422
+  );
+});
+
+test("resolveTargetMemberFromRows throws 404 when target member missing", () => {
+  assert.throws(
+    () =>
+      resolveTargetMemberFromRows(
+        { id: "a1", householdId: "h1" },
+        null,
+        "missing-id"
+      ),
+    (err: unknown) => err instanceof AppError && (err as AppError).status === 404
+  );
+});
+
 test("resolveTargetMemberFromRows rejects cross-household member selection", () => {
   assert.throws(
     () =>
