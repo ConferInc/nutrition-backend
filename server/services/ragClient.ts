@@ -31,7 +31,7 @@ interface FeatureConfig {
 
 const FEATURE_CONFIG: Record<FeatureName, FeatureConfig> = {
     search: { flag: "USE_GRAPH_SEARCH", endpoint: "/search/hybrid", timeout: 8_000 },
-    feed: { flag: "USE_GRAPH_FEED", endpoint: "/recommend/feed", timeout: 8_000 },
+    feed: { flag: "USE_GRAPH_FEED", endpoint: "/recommend/feed", timeout: 15_000 },
     mealPlan: { flag: "USE_GRAPH_MEAL_PLAN", endpoint: "/recommend/meal-candidates", timeout: 10_000 },
     grocery: { flag: "USE_GRAPH_GROCERY", endpoint: "/recommend/products", timeout: 8_000 },
     scanner: { flag: "USE_GRAPH_SCANNER", endpoint: "/recommend/alternatives", timeout: 8_000 },

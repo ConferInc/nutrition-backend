@@ -36,6 +36,9 @@ const envSchema = z.object({
   USE_GRAPH_NOTIFICATION: z.string().default("false"),
   NOTIFICATION_CRON_ENABLED: z.string().default("false"),
   MAX_DAILY_NOTIFICATIONS: z.string().transform(Number).default("2"),
+
+  // Feed behavior: supplement RAG results with SQL (default OFF = RAG-only)
+  FEED_SQL_SUPPLEMENT: z.string().default("false"),
 });
 
 function validateEnv() {

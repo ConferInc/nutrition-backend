@@ -33,8 +33,8 @@ router.get("/", authMiddleware, rateLimitMiddleware, async (req, res, next) => {
     const memberId = req.query.memberId as string | undefined;
 
     const b2cCustomerId = requireB2cCustomerIdFromReq(req);
-    const results = await getPersonalizedFeedWithRAG(b2cCustomerId, limit, offset, memberId);
-    res.json(results);
+    const feedResponse = await getPersonalizedFeedWithRAG(b2cCustomerId, limit, offset, memberId);
+    res.json({ recipes: feedResponse.recipes, source: feedResponse.source });
   } catch (error) {
     next(error);
   }

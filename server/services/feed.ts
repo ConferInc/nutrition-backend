@@ -6,10 +6,17 @@ import { getMemberPrefs, toRagProfile, type MemberPrefs } from "./memberPrefs.js
 import { buildRecommendationContext } from "./contextBuilder.js";
 import { logger } from "../config/logger.js";
 
+export type FeedSource = "rag" | "personalized_sql" | "relaxed_sql" | "trending";
+
 export interface FeedResult {
   recipe: any;
   score: number;
   reasons: string[];
+}
+
+export interface FeedResponse {
+  recipes: FeedResult[];
+  source: FeedSource;
 }
 
 type UserPrefs = {
@@ -103,7 +110,7 @@ export async function getPersonalizedFeed(
   offset: number = 0,
   memberId?: string,
   context?: { mealTimeSlot?: string; cuisinePreferences?: string[]; targetCalories?: number | null }
-): Promise<FeedResult[]> {
+): Promise<FeedResponse> {
   // Use member's ID for per-user joins (cuisine prefs, viewed-exclusion) when in member mode
   const effectiveUserId = memberId || b2cCustomerId;
   try {
@@ -230,19 +237,121 @@ export async function getPersonalizedFeed(
       },
     }, "feed_sql_result");
 
-    const nutritionMap = await getRecipeNutritionMap(ids);
-    const allergenMap = await getRecipeAllergenMap(ids);
+    // ── Progressive Relaxation: if 0 results, retry with fewer constraints ──
+    let relaxationTier: "none" | "tier1" | "tier2_trending" = "none";
+    let finalRows = rows;
 
-    return rows.map((row: any) => {
-      const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : Date.now();
-      const daysOld = Math.max(0, (Date.now() - updatedAt) / 86400000);
-      const score = Number(row.saved_30d ?? 0) + 1 / (1 + daysOld);
-      return {
-        recipe: mapFeedRecipe(row, nutritionMap, allergenMap),
-        score,
-        reasons: [],
-      };
-    });
+    if (rows.length === 0) {
+      logger.info({
+        event: "feed_sql_zero_results",
+        customerId: b2cCustomerId,
+        relaxationAttempt: true,
+        filters: { diets: prefs.dietIds.length, allergens: prefs.allergenIds.length,
+                   conditions: prefs.conditionIds.length, dislikes: dislikes.length,
+                   mealType: mealTypeFilter, calorie: targetCalPerMeal },
+      }, "feed_sql_zero_results");
+
+      // Tier 1: Keep diet + allergen safety. Drop calorie, meal_type, viewed exclusion, dislikes
+      const relaxedRows = await executeRaw(
+        `
+        select
+          r.*,
+          c.id as cuisine_id,
+          c.code as cuisine_code,
+          c.name as cuisine_name,
+          coalesce(p.saved_30d, 0) as saved_30d,
+          case when ccp.cuisine_id is not null then 1 else 0 end as cuisine_match
+        from gold.recipes r
+        left join gold.cuisines c on c.id = r.cuisine_id
+        left join lateral (
+          select count(*)::int as saved_30d
+          from gold.customer_product_interactions cpi
+          where cpi.recipe_id = r.id
+            and cpi.entity_type = 'recipe'
+            and cpi.interaction_type = 'saved'
+            and cpi.interaction_timestamp > now() - interval '30 days'
+        ) p on true
+        left join gold.b2c_customer_cuisine_preferences ccp
+          on ccp.cuisine_id = r.cuisine_id and ccp.b2c_customer_id = $3
+        where (coalesce(cardinality($1::uuid[]),0)=0 or not exists (
+          select 1
+          from gold.recipe_ingredients ri
+          join gold.diet_ingredient_rules dir on dir.ingredient_id = ri.ingredient_id
+          where ri.recipe_id = r.id
+            and dir.diet_id = any($1)
+            and dir.rule_type = 'forbidden'
+        ))
+        and (coalesce(cardinality($2::uuid[]),0)=0 or not exists (
+          select 1
+          from gold.recipe_ingredients ri
+          join gold.ingredient_allergens ia on ia.ingredient_id = ri.ingredient_id
+          where ri.recipe_id = r.id
+            and ia.allergen_id = any($2)
+        ))
+        order by
+          (case when ccp.cuisine_id is not null then 5 else 0 end) + coalesce(p.saved_30d, 0)
+          desc nulls last,
+          r.updated_at desc, r.id asc
+        limit $4 offset $5
+        `,
+        [prefs.dietIds, prefs.allergenIds, effectiveUserId, limit, offset]
+      );
+
+      if (relaxedRows.length > 0) {
+        relaxationTier = "tier1";
+        finalRows = relaxedRows;
+        logger.info({
+          event: "feed_sql_relaxed_success", count: relaxedRows.length,
+          relaxedFilters: ["calorie", "meal_type", "viewed", "dislikes", "health_conditions"],
+        }, "feed_sql_relaxed_success");
+      }
+    }
+
+    // Tier 2: If still 0, return trending recipes as ultimate fallback
+    if (finalRows.length === 0) {
+      relaxationTier = "tier2_trending";
+      logger.warn({
+        event: "feed_sql_ultimate_fallback",
+        customerId: b2cCustomerId,
+        message: "All SQL tiers returned 0 — returning trending recipes",
+      }, "feed_sql_ultimate_fallback");
+
+      const trendingRows = await executeRaw(
+        `
+        select r.*, c.id as cuisine_id, c.code as cuisine_code, c.name as cuisine_name,
+               0 as saved_30d, 0 as cuisine_match
+        from gold.recipes r
+        left join gold.cuisines c on c.id = r.cuisine_id
+        order by r.updated_at desc nulls last
+        limit $1 offset $2
+        `,
+        [limit, offset]
+      );
+      finalRows = trendingRows;
+    }
+
+    const finalIds = finalRows.map((r: any) => r.id);
+    const nutritionMap = await getRecipeNutritionMap(finalIds);
+    const allergenMap = await getRecipeAllergenMap(finalIds);
+
+    const feedSource: FeedSource =
+      relaxationTier === "tier2_trending" ? "trending"
+      : relaxationTier === "tier1" ? "relaxed_sql"
+      : "personalized_sql";
+
+    return {
+      recipes: finalRows.map((row: any) => {
+        const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : Date.now();
+        const daysOld = Math.max(0, (Date.now() - updatedAt) / 86400000);
+        const score = Number(row.saved_30d ?? 0) + 1 / (1 + daysOld);
+        return {
+          recipe: mapFeedRecipe(row, nutritionMap, allergenMap),
+          score,
+          reasons: [],
+        };
+      }),
+      source: feedSource,
+    };
   } catch (error) {
     logger.error("Personalized feed error:", error);
     throw new Error("Failed to generate personalized feed");
@@ -298,11 +407,11 @@ export async function getFeedRecommendations(b2cCustomerId: string): Promise<{
 
     const trending = trendingRows.map((row: any) => mapFeedRecipe(row, nutritionMap, allergenMap));
     const recent = recentRows.map((row: any) => mapFeedRecipe(row, nutritionMap, allergenMap));
-    const forYou = await getPersonalizedFeed(b2cCustomerId, 20);
+    const forYouResponse = await getPersonalizedFeed(b2cCustomerId, 20);
 
     return {
       trending,
-      forYou,
+      forYou: forYouResponse.recipes,
       recent,
     };
   } catch (error) {
@@ -328,7 +437,7 @@ export async function getPersonalizedFeedWithRAG(
   limit: number = 200,
   offset: number = 0,
   memberId?: string
-): Promise<FeedResult[]> {
+): Promise<FeedResponse> {
   // PRD-17: skip RAG for zero-interaction users (collaborative filtering has no signal)
   const interactions = await getUserInteractionCount(b2cCustomerId);
   const feedStart = Date.now();
@@ -389,10 +498,13 @@ export async function getPersonalizedFeedWithRAG(
       }));
 
       // Supplement with SQL results if RAG returned fewer than the limit
-      if (ragResults.length < limit) {
-        const sqlResults = await getPersonalizedFeed(b2cCustomerId, limit - ragResults.length, 0, memberId, context);
+      // Controlled by FEED_SQL_SUPPLEMENT env flag (default: false = RAG-only when RAG succeeds)
+      const sqlSupplementEnabled = process.env.FEED_SQL_SUPPLEMENT === "true";
+
+      if (sqlSupplementEnabled && ragResults.length < limit) {
+        const sqlResponse = await getPersonalizedFeed(b2cCustomerId, limit - ragResults.length, 0, memberId, context);
         const ragIdSet = new Set(ragResults.map(r => r.recipe.id));
-        const dedupedSql = sqlResults.filter(r => !ragIdSet.has(r.recipe.id));
+        const dedupedSql = sqlResponse.recipes.filter(r => !ragIdSet.has(r.recipe.id));
         const combined = [...ragResults, ...dedupedSql].slice(0, limit);
         logger.info({
           event: "feed_source_decision", source: "RAG_PLUS_SQL",
@@ -401,7 +513,7 @@ export async function getPersonalizedFeedWithRAG(
           ragCount: ragResults.length, sqlSupplement: dedupedSql.length,
           totalElapsedMs: Date.now() - feedStart,
         }, "feed_source_decision");
-        return combined;
+        return { recipes: combined, source: "rag" };
       }
 
       logger.info({
@@ -411,7 +523,7 @@ export async function getPersonalizedFeedWithRAG(
         ragCount: ragResults.length,
         totalElapsedMs: Date.now() - feedStart,
       }, "feed_source_decision");
-      return ragResults;
+      return { recipes: ragResults, source: "rag" };
     } catch (hydrationErr) {
       logger.warn("[RAG] Feed hydration failed (non-UUID IDs?), falling back to SQL:", hydrationErr);
     }
@@ -500,9 +612,9 @@ export async function getFeedRecommendationsWithRAG(b2cCustomerId: string, membe
     const recent = recentRows.map((row: any) => mapFeedRecipe(row, nutritionMap, allergenMap));
 
     // ForYou: graph-enhanced (RAG → SQL fallback) — uses member prefs
-    const forYou = await getPersonalizedFeedWithRAG(b2cCustomerId, 20, 0, memberId);
+    const forYouResponse = await getPersonalizedFeedWithRAG(b2cCustomerId, 20, 0, memberId);
 
-    return { trending, forYou, recent };
+    return { trending, forYou: forYouResponse.recipes, recent };
   } catch (error) {
     logger.error("Feed recommendations (RAG) error:", error);
     throw new Error("Failed to get feed recommendations");

@@ -108,6 +108,7 @@ router.get(
         try {
             const customerId = b2cId(req);
             const count = await getUnreadCount(customerId);
+            res.set("Cache-Control", "private, max-age=15");
             res.json({ count });
         } catch (err) {
             next(err);
