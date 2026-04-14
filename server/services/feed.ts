@@ -6,7 +6,7 @@ import { getMemberPrefs, toRagProfile, type MemberPrefs } from "./memberPrefs.js
 import { buildRecommendationContext } from "./contextBuilder.js";
 import { logger } from "../config/logger.js";
 
-export type FeedSource = "rag" | "personalized_sql" | "relaxed_sql" | "trending";
+export type FeedSource = "rag" | "rag_plus_sql" | "personalized_sql" | "relaxed_sql" | "trending";
 
 export interface FeedResult {
   recipe: any;
@@ -322,10 +322,25 @@ export async function getPersonalizedFeed(
                0 as saved_30d, 0 as cuisine_match
         from gold.recipes r
         left join gold.cuisines c on c.id = r.cuisine_id
+        where (coalesce(cardinality($3::uuid[]),0)=0 or not exists (
+          select 1
+          from gold.recipe_ingredients ri
+          join gold.diet_ingredient_rules dir on dir.ingredient_id = ri.ingredient_id
+          where ri.recipe_id = r.id
+            and dir.diet_id = any($3)
+            and dir.rule_type = 'forbidden'
+        ))
+        and (coalesce(cardinality($4::uuid[]),0)=0 or not exists (
+          select 1
+          from gold.recipe_ingredients ri
+          join gold.ingredient_allergens ia on ia.ingredient_id = ri.ingredient_id
+          where ri.recipe_id = r.id
+            and ia.allergen_id = any($4)
+        ))
         order by r.updated_at desc nulls last
         limit $1 offset $2
         `,
-        [limit, offset]
+        [limit, offset, prefs.dietIds, prefs.allergenIds]
       );
       finalRows = trendingRows;
     }
@@ -513,7 +528,7 @@ export async function getPersonalizedFeedWithRAG(
           ragCount: ragResults.length, sqlSupplement: dedupedSql.length,
           totalElapsedMs: Date.now() - feedStart,
         }, "feed_source_decision");
-        return { recipes: combined, source: "rag" };
+        return { recipes: combined, source: "rag_plus_sql" };
       }
 
       logger.info({
