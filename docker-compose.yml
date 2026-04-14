@@ -34,22 +34,22 @@ services:
       retries: 3
     labels:
       # ── Coolify Management ──
-      coolify.managed: "true"
+      - "coolify.managed=true"
       # ── Traefik HTTP Routing ──
-      traefik.enable: "true"
-      traefik.http.routers.http-0-occoo80co04cw40kcoo40o8s.entrypoints: http
-      traefik.http.routers.http-0-occoo80co04cw40kcoo40o8s.rule: Host(`occoo80co04cw40kcoo40o8s.207.244.226.234.sslip.io`)
-      traefik.http.routers.http-0-occoo80co04cw40kcoo40o8s.service: http-0-occoo80co04cw40kcoo40o8s
-      traefik.http.services.http-0-occoo80co04cw40kcoo40o8s.loadbalancer.server.port: "5000"
+      - "traefik.enable=true"
+      - "traefik.http.routers.http-0-occoo80co04cw40kcoo40o8s.entrypoints=http"
+      - "traefik.http.routers.http-0-occoo80co04cw40kcoo40o8s.rule=Host(`occoo80co04cw40kcoo40o8s.207.244.226.234.sslip.io`)"
+      - "traefik.http.routers.http-0-occoo80co04cw40kcoo40o8s.service=http-0-occoo80co04cw40kcoo40o8s"
+      - "traefik.http.services.http-0-occoo80co04cw40kcoo40o8s.loadbalancer.server.port=5000"
       # ── Traefik HTTPS Routing ──
-      traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.entrypoints: https
-      traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.rule: Host(`occoo80co04cw40kcoo40o8s.207.244.226.234.sslip.io`)
-      traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.service: http-0-occoo80co04cw40kcoo40o8s
-      traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.tls: "true"
-      traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.tls.certresolver: letsencrypt
+      - "traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.entrypoints=https"
+      - "traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.rule=Host(`occoo80co04cw40kcoo40o8s.207.244.226.234.sslip.io`)"
+      - "traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.service=http-0-occoo80co04cw40kcoo40o8s"
+      - "traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.tls=true"
+      - "traefik.http.routers.https-0-occoo80co04cw40kcoo40o8s.tls.certresolver=letsencrypt"
       # ── Caddy Fallback ──
-      caddy_0: http://occoo80co04cw40kcoo40o8s.207.244.226.234.sslip.io
-      caddy_0.handle_path.0_reverse_proxy: "{{upstreams 5000}}"
+      - "caddy_0=http://occoo80co04cw40kcoo40o8s.207.244.226.234.sslip.io"
+      - "caddy_0.handle_path.0_reverse_proxy={{upstreams 5000}}"
 
 networks:
   coolify:
