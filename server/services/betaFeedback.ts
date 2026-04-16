@@ -112,7 +112,7 @@ export interface FeedbackSubmission {
   isSafetyFlag?: boolean;
   contextMetadata?: Record<string, unknown>;
   rating?: number;
-  feedbackType?: string;
+  feedbackType?: "issue" | "suggestion" | "praise";
   feature?: string;
 }
 
