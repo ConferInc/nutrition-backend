@@ -41,6 +41,7 @@ const VALID_FLOWS = [
   "recipe_analyzer",
   "search",
   "grocery_substitutions",
+  "user_initiated",
 ] as const;
 
 const flowSchema = z.enum(VALID_FLOWS);
@@ -82,6 +83,9 @@ const submitSchema = z.object({
   followUpTags: z.array(z.string().max(50)).max(10).optional(),
   isSafetyFlag: z.boolean().optional(),
   contextMetadata: z.record(z.unknown()).optional(),
+  rating: z.number().int().min(1).max(5).optional(),
+  feedbackType: z.enum(["issue", "suggestion", "praise"]).optional(),
+  feature: z.string().max(50).optional(),
 });
 
 /**

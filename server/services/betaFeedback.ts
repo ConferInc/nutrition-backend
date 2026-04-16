@@ -14,7 +14,7 @@ import { logger } from "../config/logger.js";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const MAX_PROMPTS_PER_DAY = 2;   // across ALL flows per calendar day
+const MAX_PROMPTS_PER_DAY = 3;   // across ALL flows per calendar day
 const FEATURE_COOLDOWN_DAYS = 7; // per flow
 
 // ── Feature flag ───────────────────────────────────────────────────────────
@@ -111,6 +111,9 @@ export interface FeedbackSubmission {
   followUpTags?: string[];
   isSafetyFlag?: boolean;
   contextMetadata?: Record<string, unknown>;
+  rating?: number;
+  feedbackType?: "issue" | "suggestion" | "praise";
+  feature?: string;
 }
 
 export async function submitFeedback(
@@ -129,6 +132,9 @@ export async function submitFeedback(
       isSafetyFlag: data.isSafetyFlag ?? false,
       contextMetadata: data.contextMetadata ?? {},
       dismissed: false,
+      rating: data.rating ?? null,
+      feedbackType: data.feedbackType ?? "suggestion",
+      feature: data.feature ?? null,
     })
     .returning();
 
