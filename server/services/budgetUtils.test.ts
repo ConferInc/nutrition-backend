@@ -4,7 +4,9 @@ import {
   buildRuleBasedRecommendations,
   getCurrentBudgetWindow,
   getRecentBudgetWindows,
+  getUtilizationPct,
   mergeRecommendations,
+  normalizeTimeZone,
 } from "./budgetUtils.js";
 
 test("getCurrentBudgetWindow computes weekly boundaries using timezone calendar", () => {
@@ -57,6 +59,62 @@ test("buildRuleBasedRecommendations includes over-budget and slippage signals", 
   assert.ok(tips.some((t) => t.id === "plan-actual-slippage"));
   assert.ok(tips.some((t) => t.id === "missing-actual-prices"));
   assert.ok(tips.some((t) => t.id === "substitution-opportunities"));
+});
+
+test("normalizeTimeZone returns UTC for blank or invalid", () => {
+  assert.equal(normalizeTimeZone(""), "UTC");
+  assert.equal(normalizeTimeZone("   "), "UTC");
+  assert.equal(normalizeTimeZone("Not/A_Real_Zone_12345"), "UTC");
+});
+
+test("normalizeTimeZone preserves valid IANA zones", () => {
+  assert.equal(normalizeTimeZone("America/New_York"), "America/New_York");
+});
+
+test("getUtilizationPct returns null for invalid budget and rounds otherwise", () => {
+  assert.equal(getUtilizationPct(50, null), null);
+  assert.equal(getUtilizationPct(50, 0), null);
+  assert.equal(getUtilizationPct(25, 100), 25);
+});
+
+test("buildRuleBasedRecommendations returns on-track when no risk signals", () => {
+  const tips = buildRuleBasedRecommendations({
+    period: "weekly",
+    spent: 100,
+    budgetAmount: 200,
+    breakdown: [
+      { category: "produce", amount: 25 },
+      { category: "dairy", amount: 25 },
+      { category: "meat", amount: 25 },
+      { category: "snacks", amount: 25 },
+    ],
+    planVsActual: null,
+    unpricedPurchasedItems: 0,
+    substitutionOpportunityCount: 0,
+    substitutionPotentialSavings: 0,
+  });
+  assert.ok(tips.some((t) => t.id === "on-track"));
+});
+
+test("getCurrentBudgetWindow monthly in leap year February", () => {
+  const now = new Date("2024-02-15T12:00:00.000Z");
+  const window = getCurrentBudgetWindow("monthly", "UTC", now);
+  assert.equal(window.endDateLocal, "2024-02-29");
+});
+
+test("mergeRecommendations returns rules-only when llm list empty", () => {
+  const rules = [
+    {
+      id: "r1",
+      title: "A",
+      description: "d",
+      severity: "info" as const,
+      potentialSavings: null,
+      source: "rules" as const,
+    },
+  ];
+  assert.deepEqual(mergeRecommendations(rules, []), rules);
+  assert.deepEqual(mergeRecommendations(rules, null), rules);
 });
 
 test("mergeRecommendations de-duplicates repeated advice", () => {

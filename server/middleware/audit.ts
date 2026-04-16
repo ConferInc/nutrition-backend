@@ -2,13 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { auditLog } from "../../shared/goldSchema.js";
 import { db } from "../config/database.js";
 import { logger } from "../config/logger.js";
-
-const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isUuid(value?: string | null): value is string {
-  if (!value) return false;
-  return uuidRegex.test(value);
-}
+import { isUuid } from "./auditUuid.js";
 
 export async function auditLogEntry(
   actorUserId: string,

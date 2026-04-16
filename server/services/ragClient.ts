@@ -117,6 +117,14 @@ function recordFailure(): void {
     }
 }
 
+/** Resets circuit breaker state — for unit tests only. */
+export function resetRagCircuitStateForTests(): void {
+    circuitState = "CLOSED";
+    consecutiveFailures = 0;
+    lastFailureAt = null;
+    halfOpenProbeInFlight = false;
+}
+
 // ── Core HTTP Caller (3-Gate Pattern) ────────────────────
 
 async function callRag<T>(

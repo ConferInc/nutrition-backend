@@ -16,6 +16,11 @@ const TTL_MS = Number(process.env.IDEMPOTENCY_TTL_MS ?? 15 * 60 * 1000);
 const MAX_STORE_SIZE = 5_000;
 const store = new Map<string, IdempotencyRecord>();
 
+/** Clears in-memory idempotency records — for unit tests only. */
+export function clearIdempotencyStoreForTests(): void {
+  store.clear();
+}
+
 /** Evict oldest 20% of entries when Map exceeds cap */
 function evictIfNeeded() {
   if (store.size <= MAX_STORE_SIZE) return;

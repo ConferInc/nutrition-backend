@@ -7,6 +7,11 @@ import { env } from "../config/env.js";
 const MAX_STORE_SIZE = 10_000;
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
 
+/** Clears in-memory buckets — for unit tests only. */
+export function clearRateLimitStoreForTests(): void {
+  rateLimitStore.clear();
+}
+
 /** Evict oldest 20% of entries when Map exceeds cap */
 function evictIfNeeded() {
   if (rateLimitStore.size <= MAX_STORE_SIZE) return;
