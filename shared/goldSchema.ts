@@ -962,6 +962,9 @@ export const b2cBetaFeedback = gold.table("b2c_beta_feedback", {
   contextMetadata: jsonb("context_metadata").default({}),
   dismissed: boolean("dismissed").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  rating: smallint("rating"),
+  feedbackType: varchar("feedback_type", { length: 20 }).default("suggestion"),
+  feature: varchar("feature", { length: 50 }),
 });
 
 export const b2cFeedbackThrottle = gold.table("b2c_feedback_throttle", {
