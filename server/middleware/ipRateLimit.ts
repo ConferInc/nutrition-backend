@@ -26,7 +26,11 @@ function evictIfNeeded() {
  */
 export function ipRateLimitMiddleware(maxRpm: number = 30) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    // Prefer X-Forwarded-For for accurate client IP behind reverse proxies
+    const forwarded = req.headers["x-forwarded-for"];
+    const ip = (typeof forwarded === "string"
+      ? forwarded.split(",")[0].trim()
+      : req.ip) || req.socket.remoteAddress || "unknown";
     const now = Date.now();
     const windowMs = 60_000; // 1 minute
 
@@ -47,6 +51,8 @@ export function ipRateLimitMiddleware(maxRpm: number = 30) {
     res.setHeader("RateLimit-Reset", resetTime.toISOString());
 
     if (bucket.count > maxRpm) {
+      const retryAfter = Math.ceil((bucket.resetTime - now) / 1000);
+      res.setHeader("Retry-After", retryAfter.toString());
       return res.status(429).json({
         type: "about:blank",
         title: "Too Many Requests",

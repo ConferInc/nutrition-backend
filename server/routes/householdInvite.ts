@@ -86,7 +86,7 @@ router.post(
       }/join?token=${invitation.inviteToken}`;
 
       // Fire-and-forget email delivery when invitedEmail is provided
-      let emailSent = false;
+      let emailQueued = false;
       if (parsed.invitedEmail) {
         const [inviter] = await db
           .select({ name: b2cCustomers.fullName })
@@ -107,14 +107,14 @@ router.post(
           inviteUrl,
           expiresAt: invitation.expiresAt,
         }).catch((err) => console.error("[invite-email] send failed:", err));
-        emailSent = true;
+        emailQueued = true;
       }
 
       res.status(201).json({
         invitation,
         inviteUrl,
         expiresAt: invitation.expiresAt,
-        emailSent,
+        emailQueued,
       });
     } catch (err) {
       next(err);

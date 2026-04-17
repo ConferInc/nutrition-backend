@@ -19,6 +19,21 @@ export async function createInvitation(
   role: string = "secondary_adult",
   invitedEmail?: string
 ): Promise<HouseholdInvitation> {
+  // SEC-4: Throttle — max 20 invitations per hour per user
+  // Must run BEFORE revoking old invites to avoid orphaning the recipient
+  const [recentCount] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(householdInvitations)
+    .where(
+      and(
+        eq(householdInvitations.invitedBy, invitedBy),
+        gt(householdInvitations.createdAt, new Date(Date.now() - 3_600_000))
+      )
+    );
+  if (Number(recentCount.count) >= 20) {
+    throw new AppError(429, "Too Many Requests", "Maximum 20 invitations per hour");
+  }
+
   // E6: Auto-revoke any existing pending invites for same email+household
   if (invitedEmail) {
     await db
@@ -31,20 +46,6 @@ export async function createInvitation(
           eq(householdInvitations.status, "pending")
         )
       );
-  }
-
-  // SEC-4: Throttle — max 20 invitations per hour per user
-  const [recentCount] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(householdInvitations)
-    .where(
-      and(
-        eq(householdInvitations.invitedBy, invitedBy),
-        gt(householdInvitations.createdAt, new Date(Date.now() - 3_600_000))
-      )
-    );
-  if (Number(recentCount.count) >= 20) {
-    throw new AppError(429, "Too Many Requests", "Maximum 20 invitations per hour");
   }
 
   // SEC-3: 256-bit token (64-char hex) instead of UUIDv4 (122-bit)
