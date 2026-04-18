@@ -1,216 +1,129 @@
-import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
-import { z } from "zod";
-import { authMiddleware } from "../middleware/auth.js";
-import { rateLimitMiddleware } from "../middleware/rateLimit.js";
-import { requireB2cCustomerIdFromReq } from "../services/b2cIdentity.js";
-import { AppError } from "../middleware/errorHandler.js";
-import {
-    getNotifications,
-    getUnreadCount,
-    markAsRead,
-    markAllAsRead,
-} from "../services/notifications.js";
-import { evaluateAndDispatchNotifications } from "../services/notificationEngine.js";
-import { trackFeature } from "../services/featureTracking.js";
+// ─── Notifications Router ─────────────────────────────────────────────────────
+// Manages FCM device token registration and provides push send endpoints.
+//
+// POST   /register-token   — save a browser FCM token
+// DELETE /register-token   — remove token on logout / permission revoked
+// POST   /send             — vendor-admin: send push to a segment of customers
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { Router, type Request, type Response } from "express";
+import { requireAuth, requirePermissionMiddleware } from "../lib/auth.js";
+import { db } from "../lib/database.js";
+import { sql } from "drizzle-orm";
+import { sendPush } from "../services/push.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
-router.use(authMiddleware);
 
-function b2cId(req: Request): string {
-    return requireB2cCustomerIdFromReq(req);
-}
-
-/**
- * @openapi
- * /notifications:
- *   get:
- *     tags: [Notifications]
- *     summary: List notifications
- *     parameters:
- *       - in: query
- *         name: type
- *         schema: { type: string, enum: [meal, nutrition, grocery, budget, family, system] }
- *       - in: query
- *         name: limit
- *         schema: { type: integer, default: 20, maximum: 100 }
- *       - in: query
- *         name: offset
- *         schema: { type: integer, default: 0 }
- *     responses:
- *       200: { description: Paginated notifications }
- */
-router.get(
-    "/",
-    rateLimitMiddleware,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const customerId = b2cId(req);
-            const type = req.query.type as string | undefined;
-            const limit = Math.min(
-                Math.max(parseInt(req.query.limit as string, 10) || 20, 1),
-                100
-            );
-            const offset = Math.max(
-                parseInt(req.query.offset as string, 10) || 0,
-                0
-            );
-
-            const validTypes = [
-                "meal",
-                "nutrition",
-                "grocery",
-                "budget",
-                "family",
-                "system",
-            ];
-            if (type && !validTypes.includes(type)) {
-                throw new AppError(
-                    400,
-                    "Bad Request",
-                    `Invalid notification type. Must be one of: ${validTypes.join(", ")}`
-                );
-            }
-
-            const result = await getNotifications({
-                customerId,
-                type,
-                limit,
-                offset,
-            });
-            res.json(result);
-        } catch (err) {
-            next(err);
-        }
-    }
-);
-
-/**
- * @openapi
- * /notifications/unread-count:
- *   get:
- *     tags: [Notifications]
- *     summary: Get unread notification count
- *     responses:
- *       200:
- *         description: Unread count
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 count: { type: integer }
- */
-router.get(
-    "/unread-count",
-    rateLimitMiddleware,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const customerId = b2cId(req);
-            const count = await getUnreadCount(customerId);
-            res.set("Cache-Control", "private, max-age=15");
-            res.json({ count });
-        } catch (err) {
-            next(err);
-        }
-    }
-);
-
-/**
- * @openapi
- * /notifications/{id}/read:
- *   patch:
- *     tags: [Notifications]
- *     summary: Mark a notification as read
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string, format: uuid }
- *     responses:
- *       200: { description: Notification marked as read }
- *       404: { description: Notification not found }
- */
-router.patch(
-    "/:id/read",
-    rateLimitMiddleware,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const customerId = b2cId(req);
-            const { id } = req.params;
-
-            z.string().uuid().parse(id);
-
-            const notification = await markAsRead(id, customerId);
-            if (!notification) {
-                throw new AppError(404, "Not Found", "Notification not found");
-            }
-            res.json({ notification });
-            trackFeature(customerId, "notifications", "read");
-        } catch (err) {
-            next(err);
-        }
-    }
-);
-
-/**
- * @openapi
- * /notifications/read-all:
- *   post:
- *     tags: [Notifications]
- *     summary: Mark all notifications as read
- *     responses:
- *       200:
- *         description: All marked as read
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 markedCount: { type: integer }
- */
+// ── POST /notifications/register-token ───────────────────────────────────────
+// Upserts an FCM device token for the authenticated user.
+// Body: { device_token: string, platform?: "web" | "ios" | "android" }
 router.post(
-    "/read-all",
-    rateLimitMiddleware,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const customerId = b2cId(req);
-            const count = await markAllAsRead(customerId);
-            res.json({ markedCount: count });
-        } catch (err) {
-            next(err);
-        }
+  "/register-token",
+  requireAuth as any,
+  async (req: Request, res: Response) => {
+    const vendorId = (req as any).auth?.vendorId;
+    const userId   = (req as any).auth?.userId;
+
+    if (!vendorId) {
+      return res.status(403).json({ code: "forbidden", detail: "No vendor context" });
     }
+
+    const { device_token, platform } = req.body ?? {};
+    if (!device_token?.trim()) {
+      return res.status(400).json({ code: "bad_request", detail: "device_token is required" });
+    }
+
+    const p = ["web", "ios", "android"].includes(platform) ? platform : "web";
+
+    try {
+      const result = await db.execute(sql`
+        INSERT INTO gold.b2b_push_tokens (customer_id, vendor_id, device_token, platform)
+        VALUES (${userId}::uuid, ${vendorId}::uuid, ${device_token.trim()}, ${p})
+        ON CONFLICT (device_token)
+          DO UPDATE SET customer_id = EXCLUDED.customer_id, updated_at = now()
+        RETURNING id, platform
+      `);
+      return res.json({ ok: true, platform: result.rows?.[0]?.platform ?? p });
+    } catch (err: any) {
+      logger.error(`[notifications] register-token error: ${err.message}`);
+      return res.status(500).json({ code: "internal_error", detail: "Failed to register device token" });
+    }
+  },
 );
 
-/**
- * @openapi
- * /notifications/evaluate:
- *   post:
- *     tags: [Notifications]
- *     summary: Evaluate and dispatch notifications for current user
- *     parameters:
- *       - in: header
- *         name: x-timezone
- *         schema: { type: string }
- *         description: Client timezone (e.g. America/New_York)
- *     responses:
- *       200: { description: Evaluation results }
- */
-router.post(
-    "/evaluate",
-    rateLimitMiddleware,
-    async (req: Request, res: Response, next: NextFunction) => {
-        try {
-            const customerId = b2cId(req);
-            const clientTimezone = req.headers["x-timezone"] as string | undefined;
-            const result = await evaluateAndDispatchNotifications(customerId, clientTimezone);
-            trackFeature(customerId, "notifications", "evaluate");
-            res.json(result);
-        } catch (err) {
-            next(err);
-        }
+// ── DELETE /notifications/register-token ─────────────────────────────────────
+// Removes an FCM token for the current user (call on logout or permission revoke).
+// Body: { device_token: string }
+router.delete(
+  "/register-token",
+  requireAuth as any,
+  async (req: Request, res: Response) => {
+    const userId = (req as any).auth?.userId;
+    const { device_token } = req.body ?? {};
+
+    if (!device_token?.trim()) {
+      return res.status(400).json({ code: "bad_request", detail: "device_token is required" });
     }
+
+    try {
+      await db.execute(sql`
+        DELETE FROM gold.b2b_push_tokens
+        WHERE device_token = ${device_token.trim()}
+          AND customer_id  = ${userId}::uuid
+      `);
+      return res.json({ ok: true });
+    } catch (err: any) {
+      logger.error(`[notifications] unregister-token error: ${err.message}`);
+      return res.status(500).json({ code: "internal_error", detail: "Failed to unregister device token" });
+    }
+  },
+);
+
+// ── POST /notifications/send ──────────────────────────────────────────────────
+// Vendor-admin: send a push notification to a segment of customers.
+// Body: { title: string, body: string, data?: Record<string,string>, target_segment?: string }
+router.post(
+  "/send",
+  requireAuth as any,
+  requirePermissionMiddleware("manage:settings") as any,
+  async (req: Request, res: Response) => {
+    const vendorId = (req as any).auth?.vendorId;
+    if (!vendorId) {
+      return res.status(403).json({ code: "forbidden", detail: "No vendor context" });
+    }
+
+    const { title, body, data, target_segment } = req.body ?? {};
+    if (!title?.trim()) return res.status(400).json({ code: "bad_request", detail: "title is required" });
+    if (!body?.trim())  return res.status(400).json({ code: "bad_request", detail: "body is required" });
+
+    try {
+      const result = await sendPush({
+        title:         title.trim(),
+        body:          body.trim(),
+        data,
+        vendorId,
+        targetSegment: target_segment ?? "all",
+      });
+
+      // Audit log
+      await db.execute(sql`
+        INSERT INTO gold.audit_log (action, entity_type, entity_id, vendor_id, details)
+        VALUES (
+          'push_notification_sent',
+          'notification',
+          NULL,
+          ${vendorId}::uuid,
+          ${JSON.stringify({ title, sent: result.sent, errors: result.errors })}
+        )
+      `);
+
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      logger.error(`[notifications] send error: ${err.message}`);
+      return res.status(500).json({ code: "internal_error", detail: "Failed to send push notification" });
+    }
+  },
 );
 
 export default router;

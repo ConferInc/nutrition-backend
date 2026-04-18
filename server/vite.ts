@@ -3,9 +3,8 @@ import fs from "fs";
 import path from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
-import viteConfig from "../vite.config.js";
+import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
-import { logger } from "./config/logger.js";
 
 const viteLogger = createLogger();
 
@@ -17,7 +16,7 @@ export function log(message: string, source = "express") {
     hour12: true,
   });
 
-  logger.info(`${formattedTime} [${source}] ${message}`);
+  console.log(`${formattedTime} [${source}] ${message}`);
 }
 
 export async function setupVite(app: Express, server: Server) {
@@ -41,6 +40,11 @@ export async function setupVite(app: Express, server: Server) {
     appType: "custom",
   });
 
+  app.use((req, res, next) => {
+    // never let the SPA fallback claim API-like paths
+    if (req.url.startsWith("/api/")) return next();
+    return vite.middlewares(req, res, next);
+  });
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;

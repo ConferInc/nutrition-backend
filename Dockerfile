@@ -1,48 +1,34 @@
-## ---------- Backend Dockerfile (Express + TS) ----------
-## Multi-stage build: build TypeScript (esbuild) and ship minimal runtime
-
-ARG NODE_VERSION=20
-
-FROM node:${NODE_VERSION}-bookworm-slim AS base
-ENV NODE_ENV=production
+# ---------- Build stage ----------
+FROM node:20-alpine AS base
 WORKDIR /app
 
-# 1) Install all deps (including dev) for build
-FROM base AS deps
-WORKDIR /app
 COPY package*.json ./
-# Need devDependencies for build (vite, esbuild, tsx)
-RUN npm ci --include=dev
+RUN npm ci
 
-# 2) Build server (bundled) – also runs vite build if configured
-FROM deps AS builder
-WORKDIR /app
 COPY . .
-RUN npm run build \
- && npx esbuild scripts/migrate.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/scripts/migrate.js
+# Build server bundle and client assets (Vite outputs to /app/dist/public)
+RUN npm run build
+RUN mkdir -p /app/server/public
 
-# 3) Runtime: only production deps + built output
-FROM node:${NODE_VERSION}-bookworm-slim AS runner
-ENV NODE_ENV=production
+# ---------- Runtime stage ----------
+FROM node:20-alpine AS runner
 WORKDIR /app
+
+# Install ALL deps so runtime imports always resolve (vite/dotenv/supabase-js/tsx, etc.)
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
-# Copy only built artifacts; esbuild bundles server to dist/
-COPY --from=builder /app/dist ./dist
+# Bring source code (we run TS directly with TSX)
+COPY . .
 
-# Optional: if your runtime needs static assets from vite build, copy them
-# COPY --from=builder /app/dist/client ./public
+# Bring the built server bundle and static client from the build stage
+COPY --from=base /app/dist ./dist
+COPY --from=base /app/dist/public ./server/public
 
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=5000
 EXPOSE 5000
 
-# Ensure the server binds to all interfaces in container
-ENV HOST=0.0.0.0 \
-    PORT=5000
-
-# Lightweight healthcheck without curl
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5000/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
-
-# Required environment: DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID
-CMD ["node", "dist/index.js"]
+# Start compiled server
+CMD ["npm", "start"]

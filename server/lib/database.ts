@@ -1,0 +1,55 @@
+import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { logger } from "./logger.js";
+
+
+function sslFor(url: string | undefined) {
+  // DB_SSL_REJECT_UNAUTHORIZED=false disables cert validation (local dev only).
+  // Defaults to true (strict) — set to false only in non-production environments.
+  const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false";
+  return url?.includes(".supabase.co") ? { rejectUnauthorized } : false;
+}
+
+const PRIMARY_URL = process.env.DATABASE_URL!;
+const READ_URL = process.env.READ_DATABASE_URL || PRIMARY_URL;
+// Keep public first to avoid accidental unqualified writes into gold.
+// Gold tables must always be referenced explicitly in raw SQL.
+const SEARCH_PATH = "public";
+
+function buildPool(url: string) {
+  return new Pool({
+    connectionString: url,
+    ssl: sslFor(url),
+    options: `-c search_path=${SEARCH_PATH}`,
+  });
+}
+
+export const primaryPool = buildPool(PRIMARY_URL);
+
+// Try to create a read pool; if anything goes wrong, reuse primary
+let replicaPool = primaryPool;
+try {
+  if (READ_URL && READ_URL !== PRIMARY_URL) {
+    replicaPool = buildPool(READ_URL);
+  }
+} catch (e) {
+  console.warn("[db] READ_DATABASE_URL invalid; falling back to primary.", e);
+  replicaPool = primaryPool;
+}
+
+export const db = drizzle(primaryPool);
+export const readDb = drizzle(replicaPool);
+
+// Optional: log a one-time probe for clarity
+primaryPool
+  .query("select current_setting('search_path') as search_path")
+  .then((r) => logger.info(`[db] primary connected (search_path=${r.rows?.[0]?.search_path ?? "unknown"})`))
+  .catch((e) => console.error("[db] primary failed", e));
+
+if (replicaPool !== primaryPool) {
+  replicaPool
+    .query("select current_setting('search_path') as search_path")
+    .then((r) => logger.info(`[db] read-replica connected (search_path=${r.rows?.[0]?.search_path ?? "unknown"})`))
+    .catch((e) => console.warn("[db] read-replica failed, using primary instead"));
+}
+

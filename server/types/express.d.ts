@@ -1,12 +1,13 @@
-import type { UserContext } from "../middleware/auth.js";
+import "express-serve-static-core";
 
-declare global {
-  namespace Express {
-    interface User extends UserContext {}
-    interface Request {
-      user?: UserContext;
-    }
+declare module "express-serve-static-core" {
+  interface Request {
+    auth?: {
+      userId: string;
+      email: string;
+      vendorId: string;
+      role: string;
+      permissions: string[];
+    };
   }
 }
-
-export {};

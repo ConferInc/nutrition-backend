@@ -1,279 +1,445 @@
--- Initial schema migration for B2C Nutrition App
+-- Odyssey B2B Initial Schema Migration
+-- This creates the base tables without partitioning
 
--- Enable required extensions
+-- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pg_cron";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
--- Taxonomy Tables
-CREATE TABLE tax_allergens (
-    id VARCHAR PRIMARY KEY,
+-- Create enums
+CREATE TYPE user_role AS ENUM ('superadmin', 'vendor_admin', 'vendor_operator', 'vendor_viewer');
+CREATE TYPE vendor_status AS ENUM ('active', 'inactive', 'suspended');
+CREATE TYPE product_status AS ENUM ('active', 'inactive');
+CREATE TYPE customer_gender AS ENUM ('male', 'female', 'other', 'unspecified');
+CREATE TYPE activity_level AS ENUM ('sedentary', 'light', 'moderate', 'very', 'extra');
+CREATE TYPE job_status AS ENUM ('queued', 'running', 'failed', 'completed', 'canceled');
+CREATE TYPE job_mode AS ENUM ('products', 'customers', 'api_sync');
+CREATE TYPE source AS ENUM ('csv', 'api');
+CREATE TYPE gtin_type AS ENUM ('UPC', 'EAN', 'ISBN');
+CREATE TYPE auth_type AS ENUM ('api_key', 'oauth2', 'basic');
+CREATE TYPE synonym_domain AS ENUM ('allergen', 'condition', 'unit', 'diet', 'gender', 'activity');
+CREATE TYPE consent_type AS ENUM ('data_processing', 'health_data', 'marketing');
+CREATE TYPE webhook_event AS ENUM ('job.completed', 'job.failed', 'product.updated', 'customer.updated');
+CREATE TYPE delivery_status AS ENUM ('pending', 'delivered', 'failed', 'retry');
+
+-- Core tables
+CREATE TABLE vendors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
-    common_names TEXT[],
-    is_top_9 BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT NOW()
+    status vendor_status NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    settings_json JSONB DEFAULT '{}',
+    catalog_version INTEGER NOT NULL DEFAULT 1
 );
 
-CREATE TABLE tax_diets (
-    id VARCHAR PRIMARY KEY,
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE user_links (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    role user_role NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    UNIQUE(user_id, vendor_id)
+);
+
+CREATE TABLE platform_admins (
+    user_id UUID PRIMARY KEY REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    created_by UUID REFERENCES users(id)
+);
+
+-- Products table (will be partitioned in next migration)
+CREATE TABLE products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    external_id TEXT NOT NULL,
     name TEXT NOT NULL,
+    brand TEXT,
     description TEXT,
-    category VARCHAR, -- 'primary', 'lifestyle', 'medical'
-    created_at TIMESTAMP DEFAULT NOW()
+    category_id UUID,
+    price NUMERIC(12,2),
+    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+    status product_status NOT NULL DEFAULT 'active',
+    search_tsv TSVECTOR,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    -- Optional fields
+    barcode TEXT,
+    gtin_type gtin_type,
+    ingredients TEXT,
+    sub_category_id UUID,
+    cuisine_id UUID,
+    market_id UUID,
+    nutrition JSONB,
+    serving_size TEXT,
+    package_weight TEXT,
+    dietary_tags TEXT[],
+    allergens TEXT[],
+    certifications TEXT[],
+    regulatory_codes TEXT[],
+    source_url TEXT,
+    soft_deleted_at TIMESTAMP,
+    UNIQUE(vendor_id, external_id),
+    UNIQUE(vendor_id, barcode)
+);
+
+CREATE TABLE product_images (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id),
+    url TEXT NOT NULL,
+    alt TEXT,
+    "order" INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE product_sources (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id),
+    source source NOT NULL,
+    source_ref TEXT,
+    ingestion_job_id UUID,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- Customers table (will be partitioned in next migration)
+CREATE TABLE customers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    external_id TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    dob TIMESTAMP,
+    age INTEGER,
+    gender customer_gender,
+    location JSONB,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    -- Optional fields
+    phone TEXT,
+    custom_tags TEXT[],
+    search_tsv TSVECTOR,
+    created_by UUID,
+    updated_by UUID,
+    UNIQUE(vendor_id, external_id)
+);
+
+CREATE TABLE customer_health_profiles (
+    customer_id UUID PRIMARY KEY REFERENCES customers(id),
+    height_cm NUMERIC(5,2) NOT NULL,
+    weight_kg NUMERIC(6,2) NOT NULL,
+    age INTEGER NOT NULL,
+    gender customer_gender NOT NULL,
+    activity_level activity_level NOT NULL,
+    conditions TEXT[] NOT NULL DEFAULT '{}',
+    diet_goals TEXT[] NOT NULL DEFAULT '{}',
+    macro_targets JSONB NOT NULL DEFAULT '{}',
+    avoid_allergens TEXT[] NOT NULL DEFAULT '{}',
+    -- Derived fields
+    bmi NUMERIC(5,2),
+    bmr NUMERIC(8,2),
+    tdee_cached NUMERIC(8,2),
+    derived_limits JSONB DEFAULT '{}',
+    -- Audit fields
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_by UUID
+);
+
+CREATE TABLE customer_consents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    customer_id UUID NOT NULL REFERENCES customers(id),
+    consent_type consent_type NOT NULL,
+    granted BOOLEAN NOT NULL,
+    version TEXT NOT NULL,
+    timestamp TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE customer_whitelists (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    customer_id UUID NOT NULL REFERENCES customers(id),
+    product_id UUID NOT NULL REFERENCES products(id),
+    note TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE customer_blacklists (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    customer_id UUID NOT NULL REFERENCES customers(id),
+    product_id UUID NOT NULL REFERENCES products(id),
+    note TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- Taxonomy tables
+CREATE TABLE tax_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    parent_id UUID REFERENCES tax_categories(id),
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE tax_tags (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    parent_id UUID REFERENCES tax_tags(id),
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE tax_allergens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    parent_id UUID REFERENCES tax_allergens(id),
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
 CREATE TABLE tax_cuisines (
-    id VARCHAR PRIMARY KEY,
-    name TEXT NOT NULL,
-    region TEXT,
-    parent_id VARCHAR REFERENCES tax_cuisines(id),
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE tax_flags (
-    id VARCHAR PRIMARY KEY,
-    name TEXT NOT NULL,
-    category VARCHAR, -- 'health', 'preference', 'restriction'
-    description TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Core Recipe Tables
-CREATE TABLE recipes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    title TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    parent_id UUID REFERENCES tax_cuisines(id),
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE tax_certifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    parent_id UUID REFERENCES tax_certifications(id),
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- Synonym tables
+CREATE TABLE synonyms_header (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    canonical TEXT NOT NULL,
+    synonyms TEXT[] NOT NULL,
+    transform_ops JSONB DEFAULT '{}',
+    confidence NUMERIC(3,2) NOT NULL DEFAULT 1.0
+);
+
+CREATE TABLE synonyms_value (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    domain synonym_domain NOT NULL,
+    canonical TEXT NOT NULL,
+    synonyms TEXT[] NOT NULL
+);
+
+CREATE TABLE vendor_mappings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    mode job_mode NOT NULL,
+    map JSONB NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- Ingestion tables
+CREATE TABLE ingestion_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    mode job_mode NOT NULL,
+    status job_status NOT NULL DEFAULT 'queued',
+    progress_pct INTEGER NOT NULL DEFAULT 0,
+    totals JSONB DEFAULT '{}',
+    error_url TEXT,
+    started_at TIMESTAMP,
+    finished_at TIMESTAMP,
+    attempt INTEGER NOT NULL DEFAULT 1,
+    params JSONB DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE ingestion_job_errors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES ingestion_jobs(id),
+    row_no INTEGER NOT NULL,
+    field TEXT,
+    code TEXT NOT NULL,
+    message TEXT NOT NULL,
+    raw JSONB
+);
+
+-- Staging tables
+CREATE TABLE stg_products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL,
+    vendor_id UUID NOT NULL,
+    external_id TEXT,
+    name TEXT,
+    brand TEXT,
     description TEXT,
-    image_url TEXT,
+    category_id TEXT,
+    price TEXT,
+    currency TEXT,
+    barcode TEXT,
+    gtin_type TEXT,
+    ingredients TEXT,
+    nutrition TEXT,
+    serving_size TEXT,
+    package_weight TEXT,
+    dietary_tags TEXT,
+    allergens TEXT,
+    certifications TEXT,
+    regulatory_codes TEXT,
     source_url TEXT,
-    
-    -- Nutrition
-    calories INTEGER,
-    protein_g NUMERIC(8,2),
-    carbs_g NUMERIC(8,2),
-    fat_g NUMERIC(8,2),
-    fiber_g NUMERIC(8,2),
-    sugar_g NUMERIC(8,2),
-    sodium_mg INTEGER,
-    saturated_fat_g NUMERIC(8,2),
-    
-    -- Recipe metadata
-    total_time_minutes INTEGER,
-    prep_time_minutes INTEGER,
-    cook_time_minutes INTEGER,
-    servings INTEGER,
-    difficulty VARCHAR, -- 'easy', 'medium', 'hard'
-    meal_type VARCHAR, -- 'breakfast', 'lunch', 'dinner', 'snack'
-    
-    -- Taxonomy arrays
-    cuisines TEXT[] DEFAULT '{}',
-    diet_tags TEXT[] DEFAULT '{}',
-    allergens TEXT[] DEFAULT '{}',
-    flags TEXT[] DEFAULT '{}',
-    
-    -- Recipe content
-    ingredients JSONB,
-    instructions JSONB,
-    notes TEXT,
-    
-    -- Search fields
-    search_text TEXT,
-    tsv TSVECTOR,
-    
-    -- Publishing
-    status VARCHAR DEFAULT 'draft', -- 'draft', 'published', 'archived'
-    market_country VARCHAR DEFAULT 'US',
-    
-    -- Tracking
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    published_at TIMESTAMP,
-    
-    -- Source tracking
-    source_type VARCHAR DEFAULT 'curated', -- 'curated', 'user_generated'
-    source_user_id VARCHAR
+    raw_data JSONB
 );
 
--- User-Generated Content
-CREATE TABLE user_recipes (
+CREATE TABLE stg_customers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_user_id VARCHAR NOT NULL,
-    
-    -- Recipe data (same structure as recipes)
-    title TEXT NOT NULL,
+    job_id UUID NOT NULL,
+    vendor_id UUID NOT NULL,
+    external_id TEXT,
+    full_name TEXT,
+    email TEXT,
+    dob TEXT,
+    age TEXT,
+    gender TEXT,
+    location TEXT,
+    phone TEXT,
+    custom_tags TEXT,
+    raw_data JSONB
+);
+
+CREATE TABLE stg_vendor_raw (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    source TEXT NOT NULL,
+    page_id TEXT,
+    payload JSONB NOT NULL,
+    fetched_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- Connector tables
+CREATE TABLE connectors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    source TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    auth_type auth_type NOT NULL,
+    rate_limit_rpm INTEGER NOT NULL DEFAULT 60,
+    secrets_ref TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE connector_cursors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    source TEXT NOT NULL,
+    cursor TEXT,
+    synced_at TIMESTAMP,
+    status TEXT NOT NULL DEFAULT 'pending'
+);
+
+-- Cache tables
+CREATE TABLE matches_cache (
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    customer_id UUID NOT NULL REFERENCES customers(id),
+    catalog_version INTEGER NOT NULL,
+    results JSONB NOT NULL,
+    ttl_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (vendor_id, customer_id, catalog_version)
+);
+
+-- Policy tables
+CREATE TABLE diet_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    condition_code TEXT NOT NULL,
+    policy JSONB NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT true,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE TABLE scoring_policies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    weights JSONB NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+-- Webhook tables
+CREATE TABLE webhook_endpoints (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    url TEXT NOT NULL,
+    secret_ref TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT true,
     description TEXT,
-    image_url TEXT,
-    
-    -- Nutrition
-    calories INTEGER,
-    protein_g NUMERIC(8,2),
-    carbs_g NUMERIC(8,2),
-    fat_g NUMERIC(8,2),
-    fiber_g NUMERIC(8,2),
-    sugar_g NUMERIC(8,2),
-    sodium_mg INTEGER,
-    saturated_fat_g NUMERIC(8,2),
-    
-    -- Recipe metadata
-    total_time_minutes INTEGER,
-    prep_time_minutes INTEGER,
-    cook_time_minutes INTEGER,
-    servings INTEGER,
-    difficulty VARCHAR,
-    meal_type VARCHAR,
-    
-    -- Taxonomy
-    cuisines TEXT[] DEFAULT '{}',
-    diet_tags TEXT[] DEFAULT '{}',
-    allergens TEXT[] DEFAULT '{}',
-    flags TEXT[] DEFAULT '{}',
-    
-    -- Content
-    ingredients JSONB,
-    instructions JSONB,
-    notes TEXT,
-    
-    -- Sharing and visibility
-    visibility VARCHAR DEFAULT 'private', -- 'private', 'shared', 'submitted'
-    share_slug VARCHAR UNIQUE,
-    
-    -- Review workflow
-    submitted_at TIMESTAMP,
-    review_status VARCHAR DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
-    reviewed_by VARCHAR,
-    reviewed_at TIMESTAMP,
-    review_notes TEXT,
-    approved_recipe_id UUID REFERENCES recipes(id),
-    
-    -- Tracking
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    retries_max INTEGER NOT NULL DEFAULT 3,
+    tolerance_sec INTEGER NOT NULL DEFAULT 300,
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
--- User Interactions
-CREATE TABLE saved_recipes (
+CREATE TABLE webhook_deliveries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id VARCHAR NOT NULL,
-    recipe_id UUID NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-    saved_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(user_id, recipe_id)
+    endpoint_id UUID NOT NULL REFERENCES webhook_endpoints(id),
+    event_type webhook_event NOT NULL,
+    payload JSONB NOT NULL,
+    status delivery_status NOT NULL DEFAULT 'pending',
+    attempt INTEGER NOT NULL DEFAULT 1,
+    last_error TEXT,
+    signature TEXT,
+    timestamp TIMESTAMP NOT NULL DEFAULT now()
 );
 
-CREATE TABLE recipe_history (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id VARCHAR NOT NULL,
-    recipe_id UUID NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-    event VARCHAR NOT NULL, -- 'viewed', 'cooked', 'shared'
-    at TIMESTAMP DEFAULT NOW(),
-    metadata JSONB
+-- Idempotency table
+CREATE TABLE idempotency_keys (
+    key TEXT PRIMARY KEY,
+    vendor_id UUID NOT NULL REFERENCES vendors(id),
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    response_hash TEXT,
+    status TEXT NOT NULL DEFAULT 'processing',
+    created_at TIMESTAMP NOT NULL DEFAULT now(),
+    expires_at TIMESTAMP NOT NULL
 );
 
--- User Profiles
-CREATE TABLE user_profiles (
-    user_id VARCHAR PRIMARY KEY,
-    profile_diets TEXT[] DEFAULT '{}',
-    profile_allergens TEXT[] DEFAULT '{}',
-    preferred_cuisines TEXT[] DEFAULT '{}',
-    
-    -- Macro targets
-    target_calories INTEGER,
-    target_protein_g NUMERIC(8,2),
-    target_carbs_g NUMERIC(8,2),
-    target_fat_g NUMERIC(8,2),
-    
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- Moderation System
-CREATE TABLE recipe_reports (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    reporter_user_id VARCHAR NOT NULL,
-    recipe_id UUID REFERENCES recipes(id),
-    user_recipe_id UUID REFERENCES user_recipes(id),
-    
-    category VARCHAR NOT NULL, -- 'inappropriate', 'copyright', 'nutrition', 'spam'
-    reason TEXT NOT NULL,
-    description TEXT,
-    
-    status VARCHAR DEFAULT 'open', -- 'open', 'investigating', 'resolved', 'dismissed'
-    priority VARCHAR DEFAULT 'medium', -- 'low', 'medium', 'high', 'critical'
-    
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE recipe_report_resolutions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    report_id UUID NOT NULL REFERENCES recipe_reports(id),
-    resolved_by VARCHAR NOT NULL,
-    action VARCHAR NOT NULL, -- 'dismiss', 'remove_content', 'warn_user', 'ban_user'
-    reason TEXT NOT NULL,
-    notes TEXT,
-    
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Admin and Security
+-- Audit table
 CREATE TABLE audit_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    at TIMESTAMP DEFAULT NOW(),
-    actor_user_id VARCHAR NOT NULL,
-    action VARCHAR NOT NULL,
-    target_table VARCHAR NOT NULL,
-    target_id VARCHAR NOT NULL,
-    diff JSONB, -- { before: {...}, after: {...} }
-    reason TEXT,
-    ip VARCHAR,
-    ua TEXT -- User agent
+    actor_user_id UUID,
+    actor_role TEXT,
+    vendor_id UUID REFERENCES vendors(id),
+    action TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    entity_id TEXT,
+    before JSONB,
+    after JSONB,
+    ip TEXT,
+    ua TEXT,
+    justification TEXT,
+    timestamp TIMESTAMP NOT NULL DEFAULT now()
 );
-
-CREATE TABLE idempotency_keys (
-    key VARCHAR PRIMARY KEY,
-    method VARCHAR NOT NULL,
-    path TEXT NOT NULL,
-    request_hash VARCHAR NOT NULL,
-    response_status INTEGER,
-    response_body JSONB,
-    created_at TIMESTAMP DEFAULT NOW(),
-    processed_at TIMESTAMP
-);
-
--- Legacy users table (for compatibility)
-CREATE TABLE users (
-    id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
-    username TEXT NOT NULL UNIQUE,
-    password TEXT NOT NULL
-);
-
--- Indexes for performance
-CREATE INDEX idx_recipes_status ON recipes(status);
-CREATE INDEX idx_recipes_market ON recipes(market_country);
-CREATE INDEX idx_recipes_updated_at ON recipes(updated_at);
-CREATE INDEX idx_recipes_cuisines ON recipes USING GIN(cuisines);
-CREATE INDEX idx_recipes_diet_tags ON recipes USING GIN(diet_tags);
-CREATE INDEX idx_recipes_allergens ON recipes USING GIN(allergens);
-
-CREATE INDEX idx_user_recipes_owner ON user_recipes(owner_user_id);
-CREATE INDEX idx_user_recipes_share_slug ON user_recipes(share_slug);
-CREATE INDEX idx_user_recipes_review_status ON user_recipes(review_status);
-CREATE INDEX idx_user_recipes_submitted_at ON user_recipes(submitted_at);
-
-CREATE INDEX idx_saved_recipes_user ON saved_recipes(user_id);
-CREATE INDEX idx_saved_recipes_saved_at ON saved_recipes(saved_at);
-
-CREATE INDEX idx_recipe_history_user_recipe_event ON recipe_history(user_id, recipe_id, event);
-CREATE INDEX idx_recipe_history_user_event_at ON recipe_history(user_id, event, at);
-CREATE INDEX idx_recipe_history_recipe_event_at ON recipe_history(recipe_id, event, at);
-
-CREATE INDEX idx_recipe_reports_status ON recipe_reports(status);
-CREATE INDEX idx_recipe_reports_priority ON recipe_reports(priority);
-CREATE INDEX idx_recipe_reports_created_at ON recipe_reports(created_at);
-
-CREATE INDEX idx_report_resolutions_report ON recipe_report_resolutions(report_id);
-CREATE INDEX idx_report_resolutions_resolved_by ON recipe_report_resolutions(resolved_by);
-
-CREATE INDEX idx_audit_log_at ON audit_log(at);
-CREATE INDEX idx_audit_log_actor ON audit_log(actor_user_id);
-CREATE INDEX idx_audit_log_action ON audit_log(action);
-CREATE INDEX idx_audit_log_target ON audit_log(target_table, target_id);
-
-CREATE INDEX idx_idempotency_created_at ON idempotency_keys(created_at);

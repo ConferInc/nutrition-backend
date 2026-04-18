@@ -1,97 +1,207 @@
-// server/index.ts
-import 'dotenv/config';
-import { config as loadEnv } from "dotenv";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import app from "./app.js";
-import { queryClient, checkDatabaseHealth } from "./config/database.js";
-import { startNotificationCron } from "./scheduler.js";
-import { logger } from "./config/logger.js";
+import express, { type Request, type Response, type NextFunction, type RequestHandler } from "express";
+import helmet from "helmet";
+import "dotenv/config";
+import http from "http";
+import { logger } from "./lib/logger.js";
+import swaggerUi from "swagger-ui-express";
 
-// prefer .env.local, fallback to .env (works on Windows too)
-const CWD = process.cwd();
-const envFile =
-  [".env.local", ".env"].map((f) => resolve(CWD, f)).find((p) => existsSync(p));
+import { registerRoutes } from "./routes.js";
+import { setupVite, serveStatic, log } from "./vite.js";
+import onboardRouter from "./routes/onboard.js";
+import invitationsRouter from "./routes/invitations.js";
+import { startRevocationCron } from "./lib/revocation-cron.js";
+import { startReportCron } from "./lib/report-cron.js";
+import { openApiSpec } from "./lib/openapi.js";
+import { requireAuth } from "./lib/auth.js";
 
-if (envFile) {
-  loadEnv({ path: envFile, override: false });
-  logger.info(`[boot] env loaded: ${envFile}`);
-} else {
-  logger.warn("[boot] no .env.local or .env found in", CWD);
-}
+const PORT = Number(process.env.PORT || 5000);
+const HOST = process.env.HOST || "127.0.0.1";
+const NODE_ENV = process.env.NODE_ENV || "development";
+const isDev = NODE_ENV !== "production";
 
-const NODE_ENV = process.env.NODE_ENV ?? "development";
-const PORT = Number(process.env.PORT ?? 5000);
-const HOST = process.env.HOST ?? "127.0.0.1";
-const WEB_ORIGINS = (process.env.WEB_ORIGINS ??
-  "http://127.0.0.1:3000,http://localhost:3000")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+export const app = express();
+export default app;
 
-// Verify DB connectivity using the primary Drizzle postgres.js connection
-// (no separate pg.Pool needed — all routes use postgres.js via Drizzle)
-checkDatabaseHealth()
-  .then((ok) => {
-    if (ok) logger.info("[db] connected");
-    else {
-      logger.error("[db] connection failed");
-      process.exit(1);
-    }
+(async () => {
+  app.use(helmet());
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
+
+  // Swagger UI (B2B-061) — gated by superadmin JWT or SWAGGER_ENABLED env flag
+  const swaggerEnabled = process.env.SWAGGER_ENABLED === "true" || isDev;
+  if (swaggerEnabled) {
+    // In production, require a valid superadmin JWT before serving docs.
+    // In dev, the guard array is empty so docs are open for convenience.
+    const swaggerGuard: RequestHandler[] = isDev
+      ? []
+      : [
+          requireAuth as RequestHandler,
+          ((req: Request, res: Response, next: NextFunction) => {
+            if ((req as any).auth?.role !== "superadmin") {
+              return res.status(403).json({ error: "Superadmin access required for API docs" });
+            }
+            next();
+          }) as RequestHandler,
+        ];
+
+    app.get("/api/docs/spec", ...swaggerGuard, (_req: Request, res: Response) => res.json(openApiSpec));
+    app.use(
+      "/api/docs",
+      ...swaggerGuard,
+      swaggerUi.serve,
+      swaggerUi.setup(openApiSpec as any, {
+        customSiteTitle: "Nutri B2B API Docs",
+        swaggerOptions: { persistAuthorization: true },
+      })
+    );
+    logger.info("Swagger UI available at /api/docs");
+  }
+
+  // Allow known /api/* route prefixes through; catch unrecognised ones
+  const knownApiPrefixes = [
+    "/api/onboard", "/api/v1",         // original
+    "/api/auth", "/api/users",       // Phase 1–3
+    "/api/vendors", "/api/settings",    // Phase 4–5
+    "/api/audit", "/api/quality",     // Phase 6–7
+    "/api/ingest",                      // ingest routes
+    "/api/invitations",                  // invitation routes
+    "/api/alerts",                       // alerts
+    "/api/compliance",                   // compliance checks
+    "/api/profile",                      // user profile
+    "/api/metrics",                      // metrics
+    "/api/config",                       // branding (public, no auth)
+    "/api/docs",                         // Swagger UI (B2B-061)
+    "/api/v1/reports",                   // scheduled reports + SendGrid webhook
+  ];
+
+  app.all(/^\/api(\/|$)/, (req, res, next) => {
+    if (knownApiPrefixes.some(p => req.path.startsWith(p))) return next();
+    return res.status(404).json({
+      ok: false,
+      message:
+        "Unknown /api route. Known prefixes: " + knownApiPrefixes.join(", "),
+      path: req.path,
+    });
   });
 
-const server = app.listen(PORT, HOST, () => {
-  logger.info(`[express] 🚀 Nutrition Backend running on http://${HOST}:${PORT}`);
-  logger.info(`[express] Environment: ${NODE_ENV}`);
-  logger.info(`[express] CORS origins: ${WEB_ORIGINS.join(", ")}`);
-  startNotificationCron();
-});
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const path = req.path || "/";
+    const start = Date.now();
+    const originalJson = (res.json as unknown as (...a: any[]) => any).bind(res);
 
-// Prevent keep-alive race condition with reverse proxies (Next.js rewrite proxy).
-// Backend keepAliveTimeout MUST be longer than the proxy's to avoid ECONNRESET.
-server.keepAliveTimeout = 65_000;
-server.headersTimeout = 66_000;
-// Allow long-running requests (LLM calls can take 30-60s) but cap at 5 minutes
-// to prevent connections from being held indefinitely.
-server.timeout = 5 * 60 * 1000;
+    (res as any).json = (body: any, ...rest: any[]) => {
+      (res as any)._sentJson = body;
+      (res as any)._sentStatus = res.statusCode;
+      return originalJson(body, ...rest);
+    };
 
-// =============================================================================
-// GRACEFUL SHUTDOWN
-// =============================================================================
-let isShuttingDown = false;
-
-async function gracefulShutdown(signal: string) {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-  logger.info(`[shutdown] Received ${signal}. Closing server gracefully...`);
-
-  // Force exit after 15s if graceful shutdown stalls — placed FIRST to bound total time
-  const forceExitTimer = setTimeout(() => {
-    logger.error("[shutdown] Forceful exit after timeout.");
-    process.exit(1);
-  }, 15_000);
-  forceExitTimer.unref();
-
-  try {
-    // Stop accepting new connections and wait for in-flight requests to finish
-    await new Promise<void>((resolve) => {
-      server.close(() => {
-        logger.info("[shutdown] HTTP server closed.");
-        resolve();
-      });
+    res.on("finish", () => {
+      if (
+        !path.startsWith("/products") &&
+        !path.startsWith("/customers") &&
+        !path.startsWith("/jobs") &&
+        !path.startsWith("/onboard")
+      ) {
+        return;
+      }
+      const ms = Date.now() - start;
+      let line = `${req.method} ${path} ${res.statusCode} in ${ms}ms`;
+      try {
+        const captured = (res as any)._sentJson;
+        if (captured) {
+          const s = JSON.stringify(captured);
+          if (s.length <= 200) line += ` :: ${s}`;
+        }
+      } catch {
+        // no-op
+      }
+      log(line);
     });
 
-    // Drain DB connections after HTTP server is fully closed
-    try {
-      await queryClient.end({ timeout: 10 });
-      logger.info("[shutdown] DB connections drained.");
-    } catch (err) {
-      logger.error("[shutdown] Error closing DB connections:", err);
-    }
-  } finally {
-    clearTimeout(forceExitTimer);
-  }
-}
+    next();
+  });
 
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+  const configuredOrigins = (process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const devOriginRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+  app.use((req, res, next) => {
+    const origin = (req.headers.origin as string) || "";
+
+    const allow = (o: string) => {
+      res.header("Access-Control-Allow-Origin", o || "*");
+      res.header("Vary", "Origin");
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.header(
+        "Access-Control-Allow-Headers",
+        "Authorization, Content-Type, X-Requested-With, X-Appwrite-JWT, X-API-Key, Idempotency-Key, X-Access-Reason"
+      );
+    };
+
+    if (!origin) {
+      if (req.method === "OPTIONS") return res.sendStatus(204);
+      return next();
+    }
+
+    if (process.env.CORS_ALLOW_ALL === "1" && isDev) {
+      allow(origin);
+      if (req.method === "OPTIONS") return res.sendStatus(204);
+      return next();
+    }
+
+    if (isDev && devOriginRegex.test(origin)) {
+      allow(origin);
+      if (req.method === "OPTIONS") return res.sendStatus(204);
+      return next();
+    }
+
+    if (!isDev && configuredOrigins.includes(origin)) {
+      allow(origin);
+      if (req.method === "OPTIONS") return res.sendStatus(204);
+      return next();
+    }
+
+    if (req.method === "OPTIONS") {
+      return res.status(403).json({ ok: false, message: "CORS blocked" });
+    }
+    console.warn("[CORS] blocked origin:", origin);
+    return res.status(403).json({ ok: false, message: "CORS blocked" });
+  });
+
+  app.get("/healthz", (_req, res) => res.json({ ok: true }));
+  app.get("/readyz", (_req, res) => res.json({ ok: true, env: NODE_ENV }));
+
+  // Single onboarding implementation source.
+  app.use("/onboard", onboardRouter);
+  app.use("/api/onboard", onboardRouter);
+  app.use("/api/invitations", invitationsRouter);
+
+  await registerRoutes(app);
+
+  const server = http.createServer(app);
+
+  if (NODE_ENV !== "production") {
+    await setupVite(app, server);
+  } else {
+    serveStatic(app);
+  }
+
+  startRevocationCron();
+  startReportCron();
+
+  server.listen(PORT, HOST, () => {
+    logger.info(`Listening on http://${HOST}:${PORT}`);
+    if (isDev) {
+      logger.info("CORS (dev): allowing any http(s)://localhost:* and http(s)://127.0.0.1:*");
+    } else {
+      logger.info(`CORS (prod): ${configuredOrigins.length ? configuredOrigins.join(", ") : "(none)"}`);
+    }
+
+  });
+})().catch((err) => {
+  console.error("[startup] Fatal error:", err);
+  process.exit(1);
+});
