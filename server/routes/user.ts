@@ -962,6 +962,10 @@ router.delete("/account", authMiddleware, rateLimitMiddleware, async (req, res, 
            WHERE id = $1`,
           [member.id]
         );
+        // Disable each member's Appwrite Auth (blocks login during grace period)
+        if (member.appwriteUserId) {
+          await disableAppwriteUser(member.appwriteUserId);
+        }
       }
       logger.info(`[account] Marked ${otherMembers.length} household members for deletion`);
     }
@@ -1011,15 +1015,16 @@ router.post("/account/recover", authMiddleware, rateLimitMiddleware, async (req,
       return res.status(400).json({ error: "Account is not pending deletion" });
     }
 
+    // Re-enable Appwrite Auth user FIRST — if this fails, DB stays pending_deletion
+    // (safer failure mode: user can retry recovery)
+    await enableAppwriteUser(awUserId);
+
     await executeRaw(
       `UPDATE gold.b2c_customers
        SET account_status = 'active', deletion_scheduled_at = NULL, updated_at = NOW()
        WHERE id = $1`,
       [id]
     );
-
-    // Re-enable Appwrite Auth user
-    await enableAppwriteUser(awUserId);
 
     void auditLogEntry(
       (req as any).user?.userId, "recover_account",

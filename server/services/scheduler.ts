@@ -238,6 +238,18 @@ async function runAppwriteCleanupRetry(): Promise<void> {
 }
 
 export function initScheduler(): void {
+  // ── Account lifecycle crons (always active — independent of notification toggle) ──
+  cron.schedule(PURGE_SCHEDULE, runAccountPurge, {
+    timezone: "America/New_York",
+  });
+  cron.schedule(APPWRITE_RETRY_SCHEDULE, runAppwriteCleanupRetry, {
+    timezone: "America/New_York",
+  });
+  logger.info(
+    `[scheduler] Account crons active: purge=${PURGE_SCHEDULE}, appwrite-retry=${APPWRITE_RETRY_SCHEDULE}`
+  );
+
+  // ── Notification crons (opt-in via NOTIFICATION_CRON_ENABLED) ──
   if (!CRON_ENABLED) {
     logger.info("[scheduler] Notification cron disabled (NOTIFICATION_CRON_ENABLED != true)");
     return;
@@ -263,18 +275,8 @@ export function initScheduler(): void {
     timezone: "America/New_York",
   });
 
-  // Account deletion purge (Phase 2)
-  cron.schedule(PURGE_SCHEDULE, runAccountPurge, {
-    timezone: "America/New_York",
-  });
-
-  // Appwrite cleanup retry (Phase 4)
-  cron.schedule(APPWRITE_RETRY_SCHEDULE, runAppwriteCleanupRetry, {
-    timezone: "America/New_York",
-  });
-
   logger.info(
-    `[scheduler] Crons active: morning=${MORNING_SCHEDULE}, evening=${EVENING_SCHEDULE}, ` +
-    `cleanup=${CLEANUP_SCHEDULE}, purge=${PURGE_SCHEDULE}, appwrite-retry=${APPWRITE_RETRY_SCHEDULE}`
+    `[scheduler] Notification crons active: morning=${MORNING_SCHEDULE}, evening=${EVENING_SCHEDULE}, ` +
+    `cleanup=${CLEANUP_SCHEDULE}`
   );
 }
