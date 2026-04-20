@@ -1,0 +1,5 @@
+[allowlist]
+  description = "Allow key-name string literals that gitleaks incorrectly flags"
+  regexes = [
+    '''integration\.ga4_measurement_id''',
+  ]

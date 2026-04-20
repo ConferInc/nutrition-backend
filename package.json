@@ -23,6 +23,7 @@
     "db:migrate:all": "npm run db:migrate:017 && npm run db:migrate:018 && npm run db:migrate:019 && npm run db:migrate:020 && npm run db:migrate:021 && npm run db:migrate:022 && npm run db:migrate:023 && npm run db:migrate:024 && npm run db:migrate:025 && npm run db:migrate:026",
     "db:verify-schema": "tsx scripts/verify-schema.ts",
     "test": "jest --passWithNoTests",
+    "test:integration": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "smoke:ingestion": "tsx scripts/smoke-ingestion.ts"
   },
