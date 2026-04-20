@@ -24,7 +24,7 @@ export async function getIngredientSubstitutions(
     const allergens = await getMemberAllergenIds(scope.targetMemberId);
 
     // Try graph-based substitutions
-    const graphSubs = await ragIngredientSubstitutions(ingredientId, allergens);
+    const graphSubs = await ragIngredientSubstitutions({ ingredient_id: ingredientId, allergens });
     if (graphSubs) {
         return { substitutions: graphSubs.substitutions, source: "graph" };
     }
@@ -44,7 +44,7 @@ export async function getProductSubstitutions(
     const allergens = await getMemberAllergenIds(scope.targetMemberId);
 
     // Try graph-based alternatives (reuses PRD-14 ragAlternatives)
-    const graphAlts = await ragAlternatives(productId, allergens);
+    const graphAlts = await ragAlternatives({ product_id: productId, allergen_ids: allergens });
     if (graphAlts) {
         return { substitutions: graphAlts.alternatives, source: "graph" };
     }

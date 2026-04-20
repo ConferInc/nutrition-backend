@@ -64,7 +64,7 @@ export function deriveDailyLimits(
   // Apply condition-specific modifications
   const derivedLimits = { ...baseLimits };
 
-  for (const condition of profile.conditions || []) {
+  for (const condition of (profile.conditions as string[] | undefined) || []) {
     const rule = conditionRules.find(r => r.conditionCode === condition);
     if (rule && rule.policy.dailyLimits) {
       Object.assign(derivedLimits, rule.policy.dailyLimits);
@@ -118,7 +118,7 @@ export function scoreProductForHealth(
   const avoidAllergens = customerProfile.avoidAllergens || [];
   
   for (const allergen of productAllergens) {
-    if (avoidAllergens.includes(allergen)) {
+    if ((avoidAllergens as string[]).includes(allergen)) {
       return 0; // Hard exclusion
     }
   }
@@ -143,7 +143,7 @@ export function scoreProductForHealth(
   }
 
   // Bonus for fiber (beneficial for many conditions)
-  if (nutrition.fiber && customerProfile.conditions?.includes('diabetes')) {
+  if (nutrition.fiber && (customerProfile.conditions as string[] | undefined)?.includes('diabetes')) {
     score += Math.min(15, nutrition.fiber * 2);
   }
 

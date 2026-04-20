@@ -338,7 +338,7 @@ async function getRecipeCandidates(
   householdType?: string,
   totalMembers?: number,
   householdId?: string,
-  scope?: string,
+  scope?: string | Record<string, unknown>,
   memberProfile?: Record<string, unknown>
 ): Promise<RecipeOption[]> {
   const mealTypes = params.mealTypes;
@@ -536,8 +536,8 @@ export async function generateMealPlan(
     limit: maxRecipes,
     memberDiets: allMemberDiets,
     mealTypes: input.mealsPerDay,
-  }, household.householdType ?? undefined, household.totalMembers ?? undefined,
-     household.id, toRagScope(household.householdType), aggregatedProfile);
+  }, household.householdType || undefined, household.totalMembers || undefined,
+     household.id, toRagScope(household.householdType) || undefined, aggregatedProfile);
   let cuisineFallbackApplied = preferredCuisines.length > 0 && cuisineIds.length === 0;
 
   // Soft preference mode: if preferred cuisines produce no matches, fall back.
@@ -548,8 +548,8 @@ export async function generateMealPlan(
       limit: maxRecipes,
       memberDiets: allMemberDiets,
       mealTypes: input.mealsPerDay,
-    }, household.householdType ?? undefined, household.totalMembers ?? undefined,
-       household.id, toRagScope(household.householdType), aggregatedProfile);
+    }, household.householdType || undefined, household.totalMembers || undefined,
+       household.id, toRagScope(household.householdType) || undefined, aggregatedProfile);
     cuisineFallbackApplied = recipeCatalog.length > 0;
   }
 

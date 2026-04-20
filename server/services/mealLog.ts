@@ -863,11 +863,11 @@ export async function getMealPatterns(
   const household = await getOrCreateHousehold(actorB2cCustomerId);
 
   // Try graph-based pattern analysis
-  const graphPatterns = await ragMealPatterns(
-      scope.targetMemberId, days,
-      household.householdType ?? undefined,
-      household.totalMembers ?? undefined
-  );
+  const graphPatterns = await ragMealPatterns({
+      target_member_id: scope.targetMemberId, days,
+      household_type: household.householdType ?? undefined,
+      total_members: household.totalMembers ?? undefined
+  });
   if (graphPatterns) return graphPatterns;
 
   // SQL fallback: basic stats from meal log history

@@ -351,8 +351,8 @@ export async function searchRecipesWithRAG(
     if (ragResult && ragResult.results.length > 0) {
       // Validate IDs are real UUIDs before hydrating
       const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      const ids = ragResult.results.map(r => r.id);
-      const allValid = ids.every(id => UUID_RE.test(id));
+      const ids = ragResult.results.map((r: any) => r.id);
+      const allValid = ids.every((id: string) => UUID_RE.test(id));
 
       if (allValid) {
         try {

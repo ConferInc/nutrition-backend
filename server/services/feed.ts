@@ -489,19 +489,19 @@ export async function getPersonalizedFeedWithRAG(
   }
 
   // Try graph-powered personalization first
-  const graphFeed = await ragFeed(
-      b2cCustomerId, prefs, memberId, memberProfile,
-      household.householdType ?? undefined,
-      household.totalMembers ?? undefined,
-      household.id,
-      toRagScope(household.householdType),
-      undefined, context
-  );
+  const graphFeed = await ragFeed({
+      b2c_customer_id: b2cCustomerId, preferences: prefs, member_id: memberId, member_profile: memberProfile,
+      household_type: household.householdType ?? undefined,
+      total_members: household.totalMembers ?? undefined,
+      household_id: household.id,
+      scope: toRagScope(household.householdType),
+      context: context ?? {}
+  });
 
-  if (graphFeed && graphFeed.results.length > 0) {
+  if (graphFeed && graphFeed.results?.length > 0) {
     // Graph returned scored + explained results — hydrate from PG
     try {
-      const ids = graphFeed.results.map(r => r.id);
+      const ids = graphFeed.results.map((r: any) => r.id);
       const hydrated = await hydrateRecipesByIds(ids);
 
       // hydrateRecipesByIds already returns camelCase recipe objects

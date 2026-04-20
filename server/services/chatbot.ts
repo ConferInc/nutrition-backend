@@ -70,15 +70,15 @@ export async function processMessage(
         locationZipCode: (household as any).locationZipCode,
     });
 
-    const ragResponse = await ragChat(
-        message, customerId, sessionId ?? null,
-        memberId, memberProfile,
-        household.householdType ?? undefined,
-        household.totalMembers ?? undefined,
-        household.id,
-        displayName,
+    const ragResponse = await ragChat({
+        message, customer_id: customerId, session_id: sessionId ?? null,
+        member_id: memberId, member_profile: memberProfile,
+        household_type: household.householdType ?? undefined,
+        total_members: household.totalMembers ?? undefined,
+        household_id: household.id,
+        display_name: displayName,
         context
-    );
+    });
 
     if (ragResponse) {
         // Update session in PG

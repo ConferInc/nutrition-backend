@@ -26,8 +26,8 @@ export async function requireB2cCustomerId(appwriteUserId: string) {
  * Read the pre-resolved b2cCustomerId from req.user (set by auth middleware).
  * Avoids an extra DB lookup on every request.
  */
-export function requireB2cCustomerIdFromReq(req: { user?: { b2cCustomerId?: string } }): string {
-  const id = req.user?.b2cCustomerId;
+export function requireB2cCustomerIdFromReq(req: { auth?: { b2cCustomerId?: string } }): string {
+  const id = req.auth?.b2cCustomerId;
   if (!id) {
     const err = new Error("B2C customer mapping not found. Run profile sync first.");
     (err as any).status = 404;

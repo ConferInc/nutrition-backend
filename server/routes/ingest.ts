@@ -609,7 +609,7 @@ router.get(
             const table = resolveBronzeTable(mode);
             const ALLOWED_BRONZE_TABLES = ["raw_products", "raw_customers", "raw_customer_health_profiles", "raw_ingredients", "raw_recipes"];
             if (!ALLOWED_BRONZE_TABLES.includes(table)) {
-                return problem(res, 400, "Invalid ingestion mode", req);
+                return problem(res, 400, "Invalid ingestion mode");
             }
 
             let bronzeCounts = { total: 0 };

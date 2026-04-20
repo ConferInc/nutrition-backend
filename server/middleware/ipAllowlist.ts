@@ -41,7 +41,7 @@ export async function ipAllowlistMiddleware(
       FROM gold.b2b_ip_allowlist
       WHERE vendor_id = ${vendorId}::uuid
     `);
-    const total: number = (countResult.rows ?? countResult as any[])[0]?.total ?? 0;
+    const total: number = ((countResult.rows as any[])?.[0])?.total ?? 0;
 
     // No entries → allowlist disabled for this vendor
     if (total === 0) {
@@ -56,7 +56,7 @@ export async function ipAllowlistMiddleware(
         AND ${clientIp}::inet <<= cidr
       LIMIT 1
     `);
-    const matched = ((matchResult.rows ?? matchResult as any[]).length ?? 0) > 0;
+    const matched = ((matchResult.rows as any[])?.length ?? 0) > 0;
 
     if (!matched) {
       res.status(403).json({

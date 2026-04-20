@@ -209,11 +209,21 @@ export const customerHealthProfiles = gold.table("b2b_customer_health_profiles",
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   customerId: uuid("b2b_customer_id").notNull().references(() => customers.id),
 
+  // Denormalized from junction tables for RAG / health-metrics convenience
+  age: integer("age"),
+  gender: text("gender"),
+  conditions: jsonb("conditions").default(sql`'[]'::jsonb`),
+  avoidAllergens: jsonb("avoid_allergens").default(sql`'[]'::jsonb`),
+  dietGoals: jsonb("diet_goals").default(sql`'[]'::jsonb`),
+  derivedLimits: jsonb("derived_limits").default(sql`'{}'::jsonb`),
+  macroTargets: jsonb("macro_targets").default(sql`'{}'::jsonb`),
+
   heightCm: numeric("height_cm", { precision: 5, scale: 2 }),
   weightKg: numeric("weight_kg", { precision: 5, scale: 2 }),
   bmi: numeric("bmi", { precision: 5, scale: 2 }),
   bmr: numeric("bmr", { precision: 8, scale: 2 }),
   tdee: numeric("tdee", { precision: 8, scale: 2 }),
+  tdeeCached: numeric("tdee_cached", { precision: 8, scale: 2 }),
   activityLevel: text("activity_level"),
 
   healthGoal: text("health_goal"),

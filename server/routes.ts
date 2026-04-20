@@ -18,7 +18,7 @@ import profileRouter from "./routes/profile.js";
 import webhooksRouter from "./routes/webhooks.js";
 import { emitWebhookEvent } from "./lib/webhooks.js";
 import { auditHealthAccess } from "./lib/audit.js";
-import { storage } from "./storage.js";
+import { storage, type CreateCustomerWithHealthArgs } from "./storage.js";
 import { extractJWT, requireAuth } from "./lib/auth.js";
 import { and, eq, desc, sql, inArray } from "drizzle-orm";
 import * as schema from "../shared/schema.js";
@@ -99,7 +99,7 @@ async function loadChatSession(
         AND expires_at > NOW()
       LIMIT 1
     `);
-    const row = (result.rows ?? result as any[])[0];
+    const row = (result.rows as any[])?.[0];
     if (!row) return null;
     const data = row.session_data as any;
     return Array.isArray(data?.report_rows) ? data.report_rows : null;
@@ -380,7 +380,7 @@ const withAuth = (handler: RequestHandler): RequestHandler => {
 export function registerRoutes(app: Express) {
   // ── Ingest API (v1) ──
   app.use("/api/v1/ingest", ingestRouter);
-  app.use("/api/v1", ingestRouter);  // keys endpoints at /api/v1/keys
+  // keys endpoints at /api/v1/keys (via ingestRouter)
 
   // ── Auth context (role/permissions for frontend) ──
   app.use("/api/auth", authContextRouter);
@@ -550,7 +550,7 @@ export function registerRoutes(app: Express) {
         ORDER BY updated_at DESC
         LIMIT ${limit}
       `);
-      const data = (rows.rows ?? rows as any[]).map(mapProductForApi);
+      const data = (rows.rows as any[]).map(mapProductForApi);
       return ok(res, { data });
     } catch (err: any) {
       return ok(res, { data: [] });
@@ -602,7 +602,7 @@ export function registerRoutes(app: Express) {
         vendor_id: vendorId,
         filters: { brand, status, category_id },
         limit,
-      });
+      }) as { results: any[]; query_interpretation?: any } | null;
 
       if (ragResult?.results?.length) {
         const enriched: any[] = [];
@@ -692,7 +692,7 @@ export function registerRoutes(app: Express) {
       vendor_id: vendorId,
       user_id: userId,
       session_id: session_id || null,
-    });
+    }) as { session_id?: string; report_data?: any[]; structured_data?: any } | null;
 
     if (!ragResult) {
       return ok(res, {
@@ -2407,7 +2407,7 @@ export function registerRoutes(app: Express) {
           vendor_id: vendorId,
           filters: { brand, status, category_id: categoryId },
           limit,
-        });
+        }) as { results: any[]; query_interpretation?: any } | null;
         if (ragResult?.results?.length) {
           const enriched: any[] = [];
           for (const r of ragResult.results) {
@@ -2544,7 +2544,7 @@ export function registerRoutes(app: Express) {
       product_id: productId,
       vendor_id: vendorId,
       limit,
-    });
+    }) as { customers: any[] } | null;
     if (ragResult?.customers?.length) return ok(res, ragResult);
 
     // SQL fallback: find customers in this vendor who have no allergen conflicts with this product.
@@ -2624,7 +2624,7 @@ export function registerRoutes(app: Express) {
       product_id: productId,
       vendor_id: vendorId,
       limit,
-    });
+    }) as { customers: any[] } | null;
     if (ragResult?.customers?.length) return ok(res, ragResult);
 
     // SQL fallback — same logic as the POST variant above
@@ -3194,7 +3194,7 @@ export function registerRoutes(app: Express) {
       dietary_preferences: hp?.dietGoals ?? [],
       health_profile: hp ? { derived_limits: hp.derivedLimits, activity_level: hp.activityLevel, health_goal: hp.healthGoal } : undefined,
       limit,
-    });
+    }) as { products: any[]; explanation?: any } | null;
     if (ragResult?.products?.length) {
       const s: any = storage as any;
       const enriched: any[] = [];
@@ -3241,9 +3241,9 @@ export function registerRoutes(app: Express) {
 
     const avoidRaw = cx?.[0]?.avoidAllergens ?? [];
     const avoid: string[] = Array.isArray(avoidRaw) ? avoidRaw : [avoidRaw].filter(Boolean);
-    const goals = cx?.[0]?.dietGoals ?? [];
+    const goals = (cx?.[0]?.dietGoals as string[] | undefined) ?? [];
     const limits = (cx?.[0]?.derivedLimits as any) ?? {};
-    const conds = cx?.[0]?.conditions ?? [];
+    const conds = (cx?.[0]?.conditions ?? []) as string[];
 
     const rules = conds.length
       ? await db
@@ -3256,7 +3256,7 @@ export function registerRoutes(app: Express) {
         ))
       : [];
 
-    const merged = mergePolicies((rules ?? []).map((r: any) => r.policy));
+    const merged: any = mergePolicies((rules ?? []).map((r: any) => r.policy));
     const requiredTags: string[] = merged.required_tags ?? [];
     const preferTags: string[] = Array.from(new Set([...(merged.bonus_tags ?? []), ...goals]));
     const hardLimits: Record<string, number> = { ...(merged.hard_limits ?? {}), ...limits };
@@ -3535,9 +3535,9 @@ export function registerRoutes(app: Express) {
     const b = req.body ?? {};
 
     // Basic customer fields the form already collects
-    const customerInput: Record<string, any> = {
-      fullName: b.name ?? b.fullName,    // UI uses "name"
-      email: b.email,
+    const customerInput: CreateCustomerWithHealthArgs["customer"] = {
+      fullName: b.name ?? b.fullName ?? "",
+      email: b.email ?? "",
       phone: b.phone ?? null,
       // accept both `customTags` and legacy `tags`
       customTags: Array.isArray(b.customTags) ? b.customTags : (Array.isArray(b.tags) ? b.tags : []),
@@ -3726,7 +3726,7 @@ export function registerRoutes(app: Express) {
       dietary_preferences: hp?.dietGoals ?? [],
       health_profile: hp ? { derived_limits: hp.derivedLimits, activity_level: hp.activityLevel, health_goal: hp.healthGoal } : undefined,
       limit,
-    });
+    }) as { products: any[]; explanation?: any } | null;
     if (ragResult?.products?.length) {
       const s: any = storage as any;
       const enriched: any[] = [];
@@ -3788,7 +3788,7 @@ export function registerRoutes(app: Express) {
     }
 
     // Merge policies into require/prefer/limits; combine with derivedLimits
-    const merged = mergePolicies((rules ?? []).map((r: any) => r.policy));
+    const merged: any = mergePolicies((rules ?? []).map((r: any) => r.policy));
     const requiredTags: string[] = merged.required_tags ?? [];
     const preferTags: string[] = Array.from(new Set([...(merged.bonus_tags ?? []), ...goals]));
     const hardLimits: Record<string, number> = { ...(merged.hard_limits ?? {}), ...limits };
@@ -3933,9 +3933,9 @@ export function registerRoutes(app: Express) {
         .limit(1);
 
       const profile = {
-        avoidAllergens: base?.[0]?.avoidAllergens ?? [],
-        dietGoals: base?.[0]?.dietGoals ?? [],
-        conditions: base?.[0]?.conditions ?? [],
+        avoidAllergens: (base?.[0]?.avoidAllergens as string[] | undefined) ?? [],
+        dietGoals: (base?.[0]?.dietGoals as string[] | undefined) ?? [],
+        conditions: (base?.[0]?.conditions as string[] | undefined) ?? [],
         derivedLimits: (base?.[0]?.derivedLimits as any) ?? {},
       };
 
@@ -3958,7 +3958,7 @@ export function registerRoutes(app: Express) {
         dietary_preferences: preview.dietGoals,
         health_profile: { derived_limits: preview.derivedLimits },
         limit,
-      });
+      }) as { products: any[]; explanation?: any } | null;
       if (ragResult?.products?.length) {
         const s: any = storage as any;
         const enriched: any[] = [];
@@ -3997,7 +3997,7 @@ export function registerRoutes(app: Express) {
             eq(schema.dietRules.active, true)
           ))
         : [];
-      const merged = mergePolicies((rules ?? []).map((r: any) => r.policy));
+      const merged: any = mergePolicies((rules ?? []).map((r: any) => r.policy));
       const requiredTags: string[] = merged.required_tags ?? [];
       const preferTags: string[] = Array.from(new Set([...(merged.bonus_tags ?? []), ...(preview.dietGoals ?? [])]));
       const hardLimits: Record<string, number> = { ...(merged.hard_limits ?? {}), ...(preview.derivedLimits ?? {}) };

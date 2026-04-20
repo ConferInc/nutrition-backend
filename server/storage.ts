@@ -59,7 +59,7 @@ export type InsertUser = typeof users.$inferInsert;
 
 export type CustomerHealthProfile = typeof customerHealthProfiles.$inferSelect;
 
-type CreateCustomerWithHealthArgs = {
+export type CreateCustomerWithHealthArgs = {
   vendorId: string;
   userId: string | null;
   customer: {
@@ -151,7 +151,7 @@ export interface IStorage {
   createCustomers(customers: InsertCustomer[]): Promise<Customer[]>;
   updateCustomer(id: string, vendorId: string, updates: Partial<InsertCustomer>): Promise<Customer | undefined>;
   deleteCustomer(id: string, vendorId: string): Promise<boolean>;
-  getCustomerWithProfile(id: string, vendorId?: string | null): Promise<(Customer & { healthProfile: CustomerHealthProfile | null }) | null>;
+  getCustomerWithProfile(id: string, vendorId?: string | null): Promise<(Customer & { healthProfile: CustomerHealthProfile | Record<string, any> | null }) | null>;
 
   upsertCustomerHealth(customerId: string, vendorId: string, patch: Partial<InsertCustomerHealthProfile>): Promise<CustomerHealthProfile>;
 
@@ -529,11 +529,11 @@ export class DatabaseStorage implements IStorage {
         : null;
       setParts.push(sql`nutrition = ${nutritionJson}::jsonb`);
     }
-    if (updates.dietaryTags !== undefined) setParts.push(sql`dietary_tags = ${toTextArray(updates.dietaryTags)}`);
-    if (updates.allergens !== undefined) setParts.push(sql`allergens = ${toTextArray(updates.allergens)}`);
-    if (updates.certifications !== undefined) setParts.push(sql`certifications = ${toTextArray(updates.certifications)}`);
-    if (updates.regulatoryCodes !== undefined) setParts.push(sql`regulatory_codes = ${toTextArray(updates.regulatoryCodes)}`);
-    if (updates.ingredients !== undefined) setParts.push(sql`ingredients = ${toTextArray(updates.ingredients)}`);
+    if (updates.dietaryTags !== undefined) setParts.push(sql`dietary_tags = ${toTextArray(updates.dietaryTags ?? undefined)}`);
+    if (updates.allergens !== undefined) setParts.push(sql`allergens = ${toTextArray(updates.allergens ?? undefined)}`);
+    if (updates.certifications !== undefined) setParts.push(sql`certifications = ${toTextArray(updates.certifications ?? undefined)}`);
+    if (updates.regulatoryCodes !== undefined) setParts.push(sql`regulatory_codes = ${toTextArray(updates.regulatoryCodes ?? undefined)}`);
+    if (updates.ingredients !== undefined) setParts.push(sql`ingredients = ${toTextArray(updates.ingredients ?? undefined)}`);
     setParts.push(sql`updated_at = now()`);
 
     const out = await db.execute(sql`
@@ -853,9 +853,9 @@ export class DatabaseStorage implements IStorage {
     const effectiveWeight = weightKg ?? existingProfile?.weightKg ?? null;
     const effectiveAge = age ?? cust.age ?? null;
 
-    let bmi: string | null = toNumericString(p.bmi);
-    let bmr: string | null = toNumericString(p.bmr);
-    let tdee: string | null = toNumericString(p.tdeeCached ?? p.tdee);
+    let bmi: string | null = toNumericString(p.bmi) ?? null;
+    let bmr: string | null = toNumericString(p.bmr) ?? null;
+    let tdee: string | null = toNumericString(p.tdeeCached ?? p.tdee) ?? null;
 
     if (
       effectiveHeight != null &&

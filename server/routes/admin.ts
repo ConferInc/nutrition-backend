@@ -17,7 +17,7 @@ import { logger } from "../config/logger.js";
 const router = Router();
 
 function requireAdminUserId(req: Request): string {
-  const userId = req.user?.userId;
+  const userId = req.auth?.userId;
   if (!userId) {
     const err = new Error("Unauthorized");
     (err as any).status = 401;
@@ -34,8 +34,12 @@ if (isDev && adminBypassEnabled) {
   // Local development with local DB — install dev bypass
   router.use(async (req, res, next) => {
     logger.info(`[ADMIN] Development bypass for: ${req.url}`);
-    req.user = {
+    req.auth = {
       userId: 'dev-admin-user',
+      email: 'dev@localhost',
+      vendorId: '00000000-0000-0000-0000-000000000000',
+      role: 'superadmin',
+      permissions: ['*'],
       isAdmin: true,
       effectiveUserId: 'dev-admin-user',
       isImpersonating: false,
@@ -51,7 +55,7 @@ if (isDev && adminBypassEnabled) {
   }
   router.use(authMiddleware);
   router.use((req: Request, res: Response, next: NextFunction) => {
-    if (!req.user) {
+    if (!req.auth) {
       return res.status(401).json({
         type: "about:blank",
         title: "Unauthorized",
@@ -60,7 +64,7 @@ if (isDev && adminBypassEnabled) {
         instance: req.url,
       });
     }
-    if (!req.user.isAdmin) {
+    if (!req.auth.isAdmin) {
       return res.status(403).json({
         type: "about:blank",
         title: "Forbidden",

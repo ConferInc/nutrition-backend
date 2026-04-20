@@ -624,9 +624,9 @@ export async function lookupProductWithAlternatives(
     let alternatives: ProductAlternative[] = [];
     if (scanResult.product && scanResult.source !== "not_found") {
         const allergenIds = await getMemberAllergenIds(memberId || b2cCustomerId);
-        const graphAlts = await ragAlternatives(scanResult.product.id, allergenIds);
+        const graphAlts = await ragAlternatives({ product_id: scanResult.product.id, allergen_ids: allergenIds });
 
-        if (graphAlts && graphAlts.alternatives.length > 0) {
+        if (graphAlts && graphAlts.alternatives?.length > 0) {
             alternatives = graphAlts.alternatives.map((alt: any) => ({
                 productId: alt.product_id,
                 name: alt.name,

@@ -317,10 +317,10 @@ async function matchProductsWithRAG(
   householdBudget?: { amount: number; period: string; currency: string } | null,
   ingredientNames?: Record<string, string>
 ): Promise<Map<string, ProductCandidate> | null> {
-  const result = await ragProducts(
-      ingredientIds, allergenIds, certificationCategories, preferredBrands,
-      householdType, totalMembers, householdBudget, ingredientNames
-  );
+  const result = await ragProducts({
+      ingredient_ids: ingredientIds, allergen_ids: allergenIds, certification_categories: certificationCategories, preferred_brands: preferredBrands,
+      household_type: householdType, total_members: totalMembers, household_budget: householdBudget, ingredient_names: ingredientNames
+  });
   if (!result || !result.products?.length) return null;
 
   const map = new Map<string, ProductCandidate>();
@@ -871,9 +871,9 @@ export async function getGroceryItemSubstitutions(
   // PRD-13: Try graph-based substitutions first
   if (currentProductId) {
     const allergenIds = await getHouseholdAllergenIds(household.id);
-    const graphSubs = await ragAlternatives(currentProductId, allergenIds);
+    const graphSubs = await ragAlternatives({ product_id: currentProductId, allergen_ids: allergenIds });
 
-    if (graphSubs && graphSubs.alternatives.length > 0) {
+    if (graphSubs && graphSubs.alternatives?.length > 0) {
       return {
         substitutions: graphSubs.alternatives.map((alt: any) => ({
           productId: alt.product_id,

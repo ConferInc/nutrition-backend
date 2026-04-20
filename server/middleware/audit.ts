@@ -51,9 +51,9 @@ export function auditedRoute(targetTable: string, handler: (req: Request, res: R
         after = result;
       }
 
-      if (req.user) {
+      if (req.auth) {
         await auditLogEntry(
-          req.user.userId,
+          req.auth.userId,
           `${req.method.toLowerCase()}_${req.route?.path || req.path}`,
           targetTable,
           req.params.id || "",

@@ -27,7 +27,7 @@ router.use(rateLimitMiddleware);
 
 // Helper to extract b2cCustomerId from request
 function b2cCustomerId(req: any): string {
-  const id = req.user?.b2cCustomerId;
+  const id = req.auth?.b2cCustomerId;
   if (!id) throw Object.assign(new Error("Customer ID required"), { statusCode: 401 });
   return id;
 }
