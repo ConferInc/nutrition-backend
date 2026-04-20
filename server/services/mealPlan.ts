@@ -778,7 +778,7 @@ export async function listPlans(
 ) {
   const household = await getOrCreateHousehold(b2cCustomerId);
 
-  let conditions = [eq(mealPlans.householdId, household.id)];
+  const conditions = [eq(mealPlans.householdId, household.id)];
   if (status) {
     conditions.push(eq(mealPlans.status, status));
   }

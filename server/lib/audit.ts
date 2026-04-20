@@ -134,7 +134,7 @@ export async function auditBreakGlassAccess(
   });
 }
 
-export function auditHealthMiddleware(handler: Function) {
+export function auditHealthMiddleware(handler: (...args: any[]) => Promise<any>) {
   return async (req: Request, context: AuthContext, ...args: any[]) => {
     const customerId = req.params.customerId || req.body.customerId;
 

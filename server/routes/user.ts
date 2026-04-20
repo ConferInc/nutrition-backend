@@ -836,7 +836,7 @@ export async function hardDeleteUser(customerId: string, awUserId: string) {
 
     await executeRaw("COMMIT");
   } catch (err) {
-    try { await executeRaw("ROLLBACK"); } catch { }
+    try { await executeRaw("ROLLBACK"); } catch { /* rollback best-effort */ }
     throw err;
   }
 

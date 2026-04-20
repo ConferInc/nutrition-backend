@@ -41,7 +41,7 @@ export async function auditLogEntry(
 
 export function auditedRoute(targetTable: string, handler: (req: Request, res: Response, next: NextFunction) => Promise<any>) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    let before: any = null;
+    const before: any = null;
     let after: any = null;
 
     try {

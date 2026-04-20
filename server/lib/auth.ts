@@ -13,6 +13,7 @@ import {
 
 // Augment Express.Request with `auth`
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       auth: AuthContext;

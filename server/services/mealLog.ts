@@ -210,7 +210,7 @@ export async function getDailyLog(
     const recipeIds = items.filter((i) => i.recipeId).map((i) => i.recipeId!);
     const productIds = items.filter((i) => i.productId).map((i) => i.productId!);
 
-    let recipeMap = new Map<string, { title: string; imageUrl: string | null }>();
+    const recipeMap = new Map<string, { title: string; imageUrl: string | null }>();
     if (recipeIds.length > 0) {
       const recipeRows = await executeRaw(
         `SELECT id, title, image_url FROM gold.recipes WHERE id = ANY($1::uuid[])`,
@@ -221,7 +221,7 @@ export async function getDailyLog(
       }
     }
 
-    let productMap = new Map<string, { name: string; brand: string | null; imageUrl: string | null }>();
+    const productMap = new Map<string, { name: string; brand: string | null; imageUrl: string | null }>();
     if (productIds.length > 0) {
       const productRows = await executeRaw(
         `SELECT id, name, brand, image_url FROM gold.products WHERE id = ANY($1::uuid[])`,

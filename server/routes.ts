@@ -366,7 +366,7 @@ const withAuth = (handler: RequestHandler): RequestHandler => {
       // mirror onto req.auth for existing code that expects it
       try {
         if (!req.auth) req.auth = (res as any).locals?.auth;
-      } catch { }
+      } catch { /* empty */ }
       // IP allowlist check — only enforced for vendors that have entries configured
       ipAllowlistMiddleware(req as any, res, () => {
         Promise.resolve(handler(req, res, next)).catch(next);
@@ -1194,6 +1194,7 @@ export function registerRoutes(app: Express) {
         }
         // ---
 
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const pptxgen = require("pptxgenjs");
         const prs = new pptxgen();
         const blueHex = pptxBlue.replace("#", "");
@@ -1910,7 +1911,8 @@ export function registerRoutes(app: Express) {
     }
 
     const rawFilename = (b.filename as string) || `report-${Date.now()}.csv`;
-    const filename = String(rawFilename).replace(/["\\\r\n\x00-\x1f]/g, "_").slice(0, 200) || "report.csv";
+    // eslint-disable-next-line no-control-regex
+    const filename = String(rawFilename).replace(/["\\\r\n\x00-\x1f]/gu, "_").slice(0, 200) || "report.csv";
 
     if (!Array.isArray(reportData) || reportData.length === 0) {
       return res.status(400).json({ error: "report_data (array of rows) or session_id with stored report required for export" });
@@ -4124,7 +4126,7 @@ export function registerRoutes(app: Express) {
       }
 
       // 1. Ensure bucket exists
-      try { await ensureBucket(bucket); } catch (_) { }
+      try { await ensureBucket(bucket); } catch (_) { /* bucket already exists */ }
 
       // 2. Upload to Supabase Storage
       const { error: upErr } = await supabaseAdmin
