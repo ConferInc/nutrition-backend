@@ -2710,21 +2710,41 @@ export function registerRoutes(app: Express) {
     });
     if (ragResult?.substitutes?.length) return ok(res, ragResult);
 
-    // SQL fallback: find active products in the same category from the same vendor
+    // SQL fallback: find active products in the same category, ordered by nutrition proximity
+    // OLD (was ORDER BY RANDOM() — gave different results on every call):
+    // const fallbackRows = await db.execute(sql`
+    //   SELECT p.id, p.name, p.brand, p.description, 0.5 AS score, 'Similar category' AS reason
+    //   FROM gold.products p
+    //   WHERE p.vendor_id = ${vendorId}::uuid AND p.id != ${productId}::uuid AND p.status = 'Active'
+    //     AND p.category_id = (SELECT category_id FROM gold.products WHERE id = ${productId}::uuid)
+    //   ORDER BY RANDOM() LIMIT ${limit}
+    // `);
     try {
       const fallbackRows = await db.execute(sql`
+        WITH orig AS (
+          SELECT category_id, calories, protein_g, fat_g
+          FROM gold.products WHERE id = ${productId}::uuid
+        )
         SELECT p.id, p.name, p.brand, p.description,
-               0.5 AS score, 'Similar category' AS reason
-        FROM gold.products p
+               ROUND(
+                 (CASE WHEN orig.calories IS NOT NULL AND p.calories IS NOT NULL AND orig.calories > 0
+                       THEN GREATEST(0, 1.0 - ABS(p.calories - orig.calories)::float / orig.calories)
+                       ELSE 0.5 END) * 0.5 +
+                 (CASE WHEN orig.protein_g IS NOT NULL AND p.protein_g IS NOT NULL AND orig.protein_g > 0
+                       THEN GREATEST(0, 1.0 - ABS(p.protein_g - orig.protein_g)::float / orig.protein_g)
+                       ELSE 0.5 END) * 0.3 +
+                 (CASE WHEN orig.fat_g IS NOT NULL AND p.fat_g IS NOT NULL AND orig.fat_g > 0
+                       THEN GREATEST(0, 1.0 - ABS(p.fat_g - orig.fat_g)::float / orig.fat_g)
+                       ELSE 0.5 END) * 0.2
+               , 2) AS score,
+               'Same category, similar nutrition' AS reason
+        FROM gold.products p, orig
         WHERE p.vendor_id = ${vendorId}::uuid
           AND p.id != ${productId}::uuid
           AND p.status = 'Active'
           AND p.category_id IS NOT NULL
-          AND p.category_id = (
-            SELECT category_id FROM gold.products
-            WHERE id = ${productId}::uuid
-          )
-        ORDER BY RANDOM()
+          AND p.category_id = orig.category_id
+        ORDER BY score DESC
         LIMIT ${limit}
       `);
       const substitutes = (fallbackRows.rows ?? []).map((r: any) => ({
@@ -2732,7 +2752,7 @@ export function registerRoutes(app: Express) {
         name: r.name,
         brand: r.brand ?? null,
         description: r.description ?? null,
-        score: r.score,
+        score: parseFloat(r.score),
         reason: r.reason,
       }));
       return ok(res, { substitutes, fallback: true });
@@ -2762,21 +2782,34 @@ export function registerRoutes(app: Express) {
     });
     if (ragResult?.substitutes?.length) return ok(res, ragResult);
 
-    // SQL fallback: find active products in the same category from the same vendor
+    // SQL fallback: find active products in the same category, ordered by nutrition proximity
+    // OLD: ORDER BY RANDOM() — see POST endpoint above for original query
     try {
       const fallbackRows = await db.execute(sql`
+        WITH orig AS (
+          SELECT category_id, calories, protein_g, fat_g
+          FROM gold.products WHERE id = ${productId}::uuid
+        )
         SELECT p.id, p.name, p.brand, p.description,
-               0.5 AS score, 'Similar category' AS reason
-        FROM gold.products p
+               ROUND(
+                 (CASE WHEN orig.calories IS NOT NULL AND p.calories IS NOT NULL AND orig.calories > 0
+                       THEN GREATEST(0, 1.0 - ABS(p.calories - orig.calories)::float / orig.calories)
+                       ELSE 0.5 END) * 0.5 +
+                 (CASE WHEN orig.protein_g IS NOT NULL AND p.protein_g IS NOT NULL AND orig.protein_g > 0
+                       THEN GREATEST(0, 1.0 - ABS(p.protein_g - orig.protein_g)::float / orig.protein_g)
+                       ELSE 0.5 END) * 0.3 +
+                 (CASE WHEN orig.fat_g IS NOT NULL AND p.fat_g IS NOT NULL AND orig.fat_g > 0
+                       THEN GREATEST(0, 1.0 - ABS(p.fat_g - orig.fat_g)::float / orig.fat_g)
+                       ELSE 0.5 END) * 0.2
+               , 2) AS score,
+               'Same category, similar nutrition' AS reason
+        FROM gold.products p, orig
         WHERE p.vendor_id = ${vendorId}::uuid
           AND p.id != ${productId}::uuid
           AND p.status = 'Active'
           AND p.category_id IS NOT NULL
-          AND p.category_id = (
-            SELECT category_id FROM gold.products
-            WHERE id = ${productId}::uuid
-          )
-        ORDER BY RANDOM()
+          AND p.category_id = orig.category_id
+        ORDER BY score DESC
         LIMIT ${limit}
       `);
       const substitutes = (fallbackRows.rows ?? []).map((r: any) => ({
@@ -2784,7 +2817,7 @@ export function registerRoutes(app: Express) {
         name: r.name,
         brand: r.brand ?? null,
         description: r.description ?? null,
-        score: r.score,
+        score: parseFloat(r.score),
         reason: r.reason,
       }));
       ok(res, { substitutes, fallback: true });

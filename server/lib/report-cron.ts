@@ -63,7 +63,7 @@ async function runScheduledReports() {
           `);
           logger.info(`[report-cron] Sent report ${row.id} to ${row.email}`);
         } else {
-          logger.warn(`[report-cron] Skipped report ${row.id} — SENDGRID_API_KEY not set`);
+          logger.warn(`[report-cron] Skipped report ${row.id} — RESEND_API_KEY not set`);
         }
       } catch (err: any) {
         logger.error(`[report-cron] Failed to send report ${row.id}: ${err?.message}`);

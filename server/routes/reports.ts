@@ -115,36 +115,69 @@ router.delete(
 );
 
 // ── POST /reports/webhook/resend ─────────────────────────────────────────────
-// Receives Resend event webhooks (bounce, spam complaint).
-// Sets email_opt_out=true on the matching customer record for compliance.
-// Register this URL in Resend dashboard: Domains → your domain → Webhooks.
-// Events to subscribe: email.bounced, email.complained
+// Receives Resend event webhooks.
+// - email.bounced / email.complained  → sets email_opt_out=true on b2b_customers
+// - email.opened / email.clicked      → records engagement in b2b_campaign_events
+// Register in Resend dashboard: Domains → your domain → Webhooks.
+// Events to subscribe: email.bounced, email.complained, email.opened, email.clicked
 router.post(
   "/webhook/resend",
   async (req: Request, res: Response) => {
-    // Resend sends a single event object per request (not an array)
     const event = req.body ?? {};
+    const eventType: string = event.type ?? "";
 
-    // Resend event types that require opt-out
-    const OPT_OUT_TYPES = new Set(["email.bounced", "email.complained"]);
+    // Resend payload: { type, created_at, data: { email_id, from, to, subject, headers, click: { link } } }
+    const toAddress = (
+      Array.isArray(event.data?.to) ? event.data.to[0] : event.data?.to ?? ""
+    ).toLowerCase().trim();
+    const resendEmailId: string = event.data?.email_id ?? "";
 
-    if (!OPT_OUT_TYPES.has(event.type)) {
-      return res.json({ ok: true, processed: 0 });
-    }
-
-    // Resend payload: { type, created_at, data: { email_id, from, to, subject, ... } }
-    const toAddress = (event.data?.to ?? "").toLowerCase().trim();
     if (!toAddress) {
       return res.json({ ok: true, processed: 0 });
     }
 
     try {
-      await db.execute(sql`
-        UPDATE gold.b2b_customers
-        SET email_opt_out = true
-        WHERE lower(email) = ${toAddress}
-      `);
-      logger.info(`[reports/webhook] Opted out ${toAddress} (event: ${event.type})`);
+      // ── Compliance: opt-out on bounce or complaint ──────────────────────────
+      if (eventType === "email.bounced" || eventType === "email.complained") {
+        await db.execute(sql`
+          UPDATE gold.b2b_customers
+          SET email_opt_out = true
+          WHERE lower(email) = ${toAddress}
+        `);
+        logger.info(`[reports/webhook] Opted out ${toAddress} (event: ${eventType})`);
+      }
+
+      // ── Engagement tracking: map Resend event to a campaign event row ───────
+      const TRACKABLE = new Set(["email.opened", "email.clicked", "email.bounced", "email.complained"]);
+      if (TRACKABLE.has(eventType)) {
+        const domainEventType = eventType.replace("email.", "");
+        const clickUrl: string | null = event.data?.click?.link ?? null;
+
+        // Find the most recent campaign 'sent' event for this recipient
+        const campaignLookup = await db.execute(sql`
+          SELECT campaign_id, vendor_id
+          FROM gold.b2b_campaign_events
+          WHERE lower(recipient_email) = ${toAddress}
+            AND event_type = 'sent'
+          ORDER BY occurred_at DESC
+          LIMIT 1
+        `);
+
+        if (campaignLookup.rows?.length) {
+          const { campaign_id, vendor_id } = campaignLookup.rows[0] as any;
+          await db.execute(sql`
+            INSERT INTO gold.b2b_campaign_events
+              (campaign_id, vendor_id, recipient_email, event_type, resend_email_id, click_url, occurred_at)
+            VALUES
+              (${campaign_id}::uuid, ${vendor_id}::uuid, ${toAddress}, ${domainEventType},
+               ${resendEmailId || null}, ${clickUrl}, now())
+            ON CONFLICT (resend_email_id, event_type) WHERE resend_email_id IS NOT NULL
+            DO NOTHING
+          `);
+          logger.info(`[reports/webhook] Recorded ${domainEventType} for campaign ${campaign_id} (${toAddress})`);
+        }
+      }
+
       return res.json({ ok: true, processed: 1 });
     } catch (err: any) {
       logger.error(`[reports/webhook] Resend webhook error: ${err?.message}`);

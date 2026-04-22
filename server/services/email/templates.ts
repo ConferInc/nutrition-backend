@@ -53,6 +53,66 @@ export function renderCampaignEmail(
 </html>`;
 }
 
+export function renderWelcomeEmail(
+  recipientName: string,
+  vendorName: string,
+  loginUrl: string,
+  branding?: CampaignBranding,
+): string {
+  const color = branding?.primaryColor ?? "#00438f";
+  const logo = branding?.logoUrl
+    ? `<img src="${branding.logoUrl}" alt="${vendorName}" style="max-height:60px;margin-bottom:20px;display:block;">`
+    : "";
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Welcome to ${vendorName}</title>
+</head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;width:100%;">
+          <tr>
+            <td style="padding:32px 40px 24px;">
+              ${logo}
+              <h1 style="margin:0 0 16px;font-size:22px;color:${color};line-height:1.3;">Welcome to ${vendorName}!</h1>
+              <p style="font-size:15px;color:#333333;line-height:1.6;margin:0 0 16px;">
+                Hi ${recipientName},<br><br>
+                Your account is ready. You can now sign in to the ${vendorName} wellness portal to get started.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="margin:24px 0;">
+                <tr>
+                  <td style="border-radius:6px;background:${color};">
+                    <a href="${loginUrl}" style="display:inline-block;padding:12px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px;">
+                      Sign In Now
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="font-size:13px;color:#666666;margin:0;">
+                Or copy this link: <a href="${loginUrl}" style="color:${color};">${loginUrl}</a>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 40px 32px;border-top:1px solid #eeeeee;">
+              <p style="margin:0;font-size:12px;color:#999999;">
+                You received this because you were invited to join ${vendorName}.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
 export function renderReportEmail(
   frequency: string,
   format: string,

@@ -6,6 +6,8 @@ import { safeErrorDetail } from "../lib/safe-error.js";
 import { sql } from "drizzle-orm";
 import { Client, Databases, ID, Query, Teams, Users } from "node-appwrite";
 import { emitWebhookEvent } from "../lib/webhooks.js";
+import { sendBulkEmail } from "../services/email/bulk-sender.js";
+import { renderWelcomeEmail } from "../services/email/templates.js";
 
 const router = Router();
 
@@ -530,6 +532,31 @@ router.post(
                 email: inv.email,
                 role: inv.role,
             }).catch(() => {});
+
+            // 7c) Send branded welcome email (best-effort, non-blocking)
+            try {
+                const vendorRow = await db.execute(sql`
+                    SELECT name, branding_primary_color, branding_logo_url
+                    FROM gold.vendors WHERE id = ${inv.vendor_id}::uuid LIMIT 1
+                `);
+                const vendor = vendorRow.rows?.[0] as any;
+                const vendorName = vendor?.name ?? "the platform";
+                const loginUrl = process.env.FRONTEND_URL
+                    ? `${process.env.FRONTEND_URL}/login`
+                    : "https://app.nutriintel.ai/login";
+                const recipientName = (fullName || inv.email.split("@")[0] || "there");
+                const html = renderWelcomeEmail(recipientName, vendorName, loginUrl, {
+                    primaryColor: vendor?.branding_primary_color ?? undefined,
+                    logoUrl: vendor?.branding_logo_url ?? undefined,
+                    vendorName,
+                });
+                sendBulkEmail([inv.email], `Welcome to ${vendorName}!`, html).catch((err: any) => {
+                    console.warn("[set-password] Welcome email send failed:", err?.message);
+                });
+            } catch (welcomeErr: any) {
+                // Non-fatal — invitation still accepted, user can log in
+                console.warn("[set-password] Welcome email skipped:", welcomeErr?.message);
+            }
 
             // 8) Upsert Appwrite user_profiles with the correct vendor info
             try {

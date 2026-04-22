@@ -6,11 +6,37 @@ import { Router, type Request, type Response } from "express";
 import { requireAuth, requirePermissionMiddleware } from "../lib/auth.js";
 import { db } from "../lib/database.js";
 import { sql } from "drizzle-orm";
-import { sendBulkEmail } from "../services/email/bulk-sender.js";
+import { sendBulkEmail, shuffleInPlace } from "../services/email/bulk-sender.js";
 import { renderCampaignEmail } from "../services/email/templates.js";
 import { resolveSegmentById, resolveSegmentEmailsById } from "./segments.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function recordSentEvents(
+  campaignId: string,
+  vendorId: string,
+  emails: string[],
+  variant: "a" | "b" | null,
+): Promise<void> {
+  if (!emails.length) return;
+  try {
+    const variantSql = variant ? `'${variant}'` : "NULL";
+    const rows = emails
+      .map((e) => `(gen_random_uuid(),'${campaignId}'::uuid,'${vendorId}'::uuid,'${e.replace(/'/g, "''")}','sent',${variantSql},now())`)
+      .join(",");
+    await db.execute(sql.raw(`
+      INSERT INTO gold.b2b_campaign_events
+        (id, campaign_id, vendor_id, recipient_email, event_type, ab_variant, occurred_at)
+      VALUES ${rows}
+      ON CONFLICT DO NOTHING
+    `));
+  } catch (err: any) {
+    logger.warn(`[campaigns] Failed to record sent events for ${campaignId}: ${err?.message}`);
+  }
+}
 
 const VALID_SEGMENTS = ["all", "active", "with_profile", "inactive"] as const;
 type Segment = typeof VALID_SEGMENTS[number];
@@ -336,15 +362,49 @@ router.post(
         return res.status(409).json({ code: "already_sent", detail: "Campaign has already been sent" });
       }
 
-      // 2. Resolve ALL opted-in recipients (no LIMIT — resolveSegment caps at 100 for previews)
+      // 2. Resolve ALL opted-in recipients
       const emails = await resolveAllRecipients(vendorId, campaign.target_segment as string);
       if (!emails.length) {
         return res.status(422).json({ code: "no_recipients", detail: "No opted-in recipients found for this segment" });
       }
 
-      // 3. Render and send
-      const html = renderCampaignEmail(campaign.subject, campaign.message);
-      const result = await sendBulkEmail(emails, campaign.subject, html);
+      const abEnabled: boolean = Boolean(campaign.ab_test_enabled);
+      let totalSent = 0;
+      let skipped = false;
+
+      if (abEnabled && campaign.subject_b && campaign.message_b) {
+        // ── A/B split: shuffle and send first half as variant A, second as variant B ─
+        const shuffled = shuffleInPlace([...emails]);
+        const mid = Math.ceil(shuffled.length / 2);
+        const groupA = shuffled.slice(0, mid);
+        const groupB = shuffled.slice(mid);
+
+        const htmlA = renderCampaignEmail(campaign.subject, campaign.message);
+        const htmlB = renderCampaignEmail(campaign.subject_b, campaign.message_b);
+
+        const [resultA, resultB] = await Promise.all([
+          sendBulkEmail(groupA, campaign.subject, htmlA),
+          sendBulkEmail(groupB, campaign.subject_b, htmlB),
+        ]);
+        totalSent = resultA.sent + resultB.sent;
+        skipped = resultA.skipped && resultB.skipped;
+
+        // Record sent events with variant tag
+        if (!skipped) {
+          await recordSentEvents(id, vendorId, groupA, "a");
+          await recordSentEvents(id, vendorId, groupB, "b");
+        }
+      } else {
+        // ── Standard send: all recipients get variant A ──────────────────────
+        const html = renderCampaignEmail(campaign.subject, campaign.message);
+        const result = await sendBulkEmail(emails, campaign.subject, html);
+        totalSent = result.sent;
+        skipped = result.skipped;
+
+        if (!skipped) {
+          await recordSentEvents(id, vendorId, emails, null);
+        }
+      }
 
       // 4. Mark campaign as sent
       await db.execute(sql`
@@ -353,10 +413,172 @@ router.post(
         WHERE id = ${id}::uuid AND vendor_id = ${vendorId}::uuid
       `);
 
-      return res.json({ ok: true, sent: result.sent, skipped: result.skipped });
+      return res.json({ ok: true, sent: totalSent, skipped, ab_enabled: abEnabled });
     } catch (err: any) {
       console.error("[campaigns] POST /:id/send error:", err?.message || err);
       return res.status(500).json({ code: "internal_error", detail: "Failed to send campaign" });
+    }
+  },
+);
+
+// ── POST /campaigns/:id/pick-winner ──────────────────────────────────────────
+// After reviewing A/B analytics, admin picks the winning variant (a or b).
+// This sends the winner's subject+message to the OTHER half of the audience
+// (those who received variant B get A, and vice versa) so every recipient
+// ends up receiving the winning content.
+router.post(
+  "/:id/pick-winner",
+  requireAuth as any,
+  requirePermissionMiddleware("manage:settings") as any,
+  async (req: Request, res: Response) => {
+    const vendorId = (req as any).auth?.vendorId;
+    if (!vendorId) return res.status(403).json({ code: "forbidden", detail: "No vendor context" });
+
+    const { id } = req.params;
+    const { winner } = req.body ?? {};
+    if (winner !== "a" && winner !== "b") {
+      return res.status(400).json({ code: "bad_request", detail: "winner must be 'a' or 'b'" });
+    }
+
+    try {
+      // Fetch campaign
+      const campResult = await db.execute(sql`
+        SELECT id, subject, message, subject_b, message_b, status, ab_test_enabled, ab_winner
+        FROM gold.b2b_campaigns
+        WHERE id = ${id}::uuid AND vendor_id = ${vendorId}::uuid
+      `);
+      if (!campResult.rows?.length) {
+        return res.status(404).json({ code: "not_found", detail: "Campaign not found" });
+      }
+      const campaign = campResult.rows[0] as any;
+
+      if (!campaign.ab_test_enabled) {
+        return res.status(422).json({ code: "not_ab", detail: "This campaign does not have A/B testing enabled" });
+      }
+      if (campaign.status !== "sent") {
+        return res.status(422).json({ code: "not_sent", detail: "Campaign must be sent before picking a winner" });
+      }
+      if (campaign.ab_winner) {
+        return res.status(409).json({ code: "winner_already_set", detail: `Winner already set to variant ${campaign.ab_winner}` });
+      }
+
+      // Find recipients who got the LOSING variant — send them the winner content
+      const losingVariant = winner === "a" ? "b" : "a";
+      const losingResult = await db.execute(sql`
+        SELECT DISTINCT recipient_email
+        FROM gold.b2b_campaign_events
+        WHERE campaign_id = ${id}::uuid
+          AND event_type = 'sent'
+          AND ab_variant = ${losingVariant}
+      `);
+      const losingEmails = (losingResult.rows ?? []).map((r: any) => r.recipient_email).filter(Boolean);
+
+      if (!losingEmails.length) {
+        return res.status(422).json({ code: "no_recipients", detail: "No recipients found for the losing variant" });
+      }
+
+      // Send winner content to losing-variant recipients
+      const winSubject = winner === "a" ? campaign.subject : campaign.subject_b;
+      const winMessage = winner === "a" ? campaign.message : campaign.message_b;
+      const html = renderCampaignEmail(winSubject, winMessage);
+      const result = await sendBulkEmail(losingEmails, winSubject, html);
+
+      // Record winner-send events
+      if (!result.skipped) {
+        await recordSentEvents(id, vendorId, losingEmails, winner);
+      }
+
+      // Persist winner choice
+      await db.execute(sql`
+        UPDATE gold.b2b_campaigns SET ab_winner = ${winner}, updated_at = now()
+        WHERE id = ${id}::uuid AND vendor_id = ${vendorId}::uuid
+      `);
+
+      return res.json({ ok: true, winner, sent_to_losing_group: result.sent, skipped: result.skipped });
+    } catch (err: any) {
+      logger.error(`[campaigns] POST /:id/pick-winner error: ${err?.message}`);
+      return res.status(500).json({ code: "internal_error", detail: "Failed to pick winner" });
+    }
+  },
+);
+
+// ── GET /campaigns/:id/analytics ─────────────────────────────────────────────
+// Returns open rate, CTR, bounce rate, and unsubscribe rate for a sent campaign.
+router.get(
+  "/:id/analytics",
+  requireAuth as any,
+  requirePermissionMiddleware("manage:settings") as any,
+  async (req: Request, res: Response) => {
+    const vendorId = (req as any).auth?.vendorId;
+    if (!vendorId) return res.status(403).json({ code: "forbidden", detail: "No vendor context" });
+
+    const { id } = req.params;
+    try {
+      // Verify campaign belongs to this vendor
+      const campCheck = await db.execute(sql`
+        SELECT id, recipient_count FROM gold.b2b_campaigns
+        WHERE id = ${id}::uuid AND vendor_id = ${vendorId}::uuid
+      `);
+      if (!campCheck.rows?.length) {
+        return res.status(404).json({ code: "not_found", detail: "Campaign not found" });
+      }
+      const recipientCount = (campCheck.rows[0] as any).recipient_count ?? 0;
+
+      const eventsResult = await db.execute(sql`
+        SELECT
+          event_type,
+          ab_variant,
+          COUNT(DISTINCT recipient_email)::int AS unique_count
+        FROM gold.b2b_campaign_events
+        WHERE campaign_id = ${id}::uuid
+        GROUP BY event_type, ab_variant
+      `);
+
+      // Aggregate totals + per-variant breakdown
+      const totals: Record<string, number> = {};
+      const variantA: Record<string, number> = {};
+      const variantB: Record<string, number> = {};
+
+      for (const row of (eventsResult.rows ?? []) as any[]) {
+        const { event_type, ab_variant, unique_count } = row;
+        totals[event_type] = (totals[event_type] ?? 0) + unique_count;
+        if (ab_variant === "a") variantA[event_type] = (variantA[event_type] ?? 0) + unique_count;
+        if (ab_variant === "b") variantB[event_type] = (variantB[event_type] ?? 0) + unique_count;
+      }
+
+      const sent = totals["sent"] ?? recipientCount;
+      const rate = (n: number, base = sent) => base > 0 ? Math.round((n / base) * 10000) / 100 : 0;
+
+      const variantStats = (v: Record<string, number>) => {
+        const s = v["sent"] ?? 0;
+        return {
+          sent: s,
+          opened: v["opened"] ?? 0,
+          clicked: v["clicked"] ?? 0,
+          open_rate: rate(v["opened"] ?? 0, s),
+          click_rate: rate(v["clicked"] ?? 0, s),
+        };
+      };
+
+      return res.json({
+        campaign_id: id,
+        sent,
+        opened: totals["opened"] ?? 0,
+        clicked: totals["clicked"] ?? 0,
+        bounced: totals["bounced"] ?? 0,
+        complained: totals["complained"] ?? 0,
+        unsubscribed: totals["unsubscribed"] ?? 0,
+        open_rate: rate(totals["opened"] ?? 0),
+        click_rate: rate(totals["clicked"] ?? 0),
+        bounce_rate: rate(totals["bounced"] ?? 0),
+        variants: {
+          a: variantStats(variantA),
+          b: variantStats(variantB),
+        },
+      });
+    } catch (err: any) {
+      logger.error(`[campaigns] GET /:id/analytics error: ${err?.message}`);
+      return res.status(500).json({ code: "internal_error", detail: "Failed to fetch analytics" });
     }
   },
 );
