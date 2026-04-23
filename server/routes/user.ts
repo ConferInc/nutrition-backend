@@ -134,10 +134,23 @@ router.get("/profile", authMiddleware, rateLimitMiddleware, async (req, res, nex
     res.json({
       id: row.id,
       fullName: row.full_name,
+      firstName: row.first_name ?? null,
       email: row.email,
-      phone: row.phone,
-      dateOfBirth: row.date_of_birth,
-      gender: row.gender,
+      phone: row.phone ?? null,
+      dateOfBirth: row.date_of_birth ?? null,
+      age: (() => {
+        // Prefer computing from date_of_birth for accuracy; fall back to stored age column
+        if (row.date_of_birth) {
+          const dob = new Date(row.date_of_birth);
+          const now = new Date();
+          let years = now.getFullYear() - dob.getFullYear();
+          const m = now.getMonth() - dob.getMonth();
+          if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) years--;
+          return years;
+        }
+        return row.age ?? null;
+      })(),
+      gender: row.gender ?? null,
       householdId: row.household_id,
       householdRole: row.household_role,
       isProfileOwner: row.is_profile_owner,

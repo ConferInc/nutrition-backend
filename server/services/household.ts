@@ -73,6 +73,21 @@ export interface UpdateMemberHealthInput {
   cuisineIds?: string[];
 }
 
+// ── Update Household Type (plan intent) ─────────────────────────────────────
+
+export async function updateHouseholdType(
+  householdId: string,
+  householdType: "individual" | "couple" | "family"
+) {
+  const updated = await db
+    .update(households)
+    .set({ householdType })
+    .where(eq(households.id, householdId))
+    .returning();
+
+  return updated[0];
+}
+
 // ── Get or Create Household ─────────────────────────────────────────────────
 
 export async function getOrCreateHousehold(b2cCustomerId: string) {
