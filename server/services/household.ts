@@ -85,6 +85,9 @@ export async function updateHouseholdType(
     .where(eq(households.id, householdId))
     .returning();
 
+  if (updated.length === 0) {
+    throw Object.assign(new Error("Household not found"), { status: 404 });
+  }
   return updated[0];
 }
 

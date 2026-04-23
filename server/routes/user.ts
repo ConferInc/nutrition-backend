@@ -139,13 +139,13 @@ router.get("/profile", authMiddleware, rateLimitMiddleware, async (req, res, nex
       phone: row.phone ?? null,
       dateOfBirth: row.date_of_birth ?? null,
       age: (() => {
-        // Prefer computing from date_of_birth for accuracy; fall back to stored age column
+        // Parse DOB as calendar date parts to avoid timezone shifts from new Date()
         if (row.date_of_birth) {
-          const dob = new Date(row.date_of_birth);
+          const [y, m, d] = String(row.date_of_birth).split("-").map(Number);
           const now = new Date();
-          let years = now.getFullYear() - dob.getFullYear();
-          const m = now.getMonth() - dob.getMonth();
-          if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) years--;
+          let years = now.getFullYear() - y;
+          const mNow = now.getMonth() + 1; // 1-indexed to match parsed month
+          if (mNow < m || (mNow === m && now.getDate() < d)) years--;
           return years;
         }
         return row.age ?? null;
