@@ -134,10 +134,23 @@ router.get("/profile", authMiddleware, rateLimitMiddleware, async (req, res, nex
     res.json({
       id: row.id,
       fullName: row.full_name,
+      firstName: row.first_name ?? null,
       email: row.email,
-      phone: row.phone,
-      dateOfBirth: row.date_of_birth,
-      gender: row.gender,
+      phone: row.phone ?? null,
+      dateOfBirth: row.date_of_birth ?? null,
+      age: (() => {
+        // Parse DOB as calendar date parts to avoid timezone shifts from new Date()
+        if (row.date_of_birth) {
+          const [y, m, d] = String(row.date_of_birth).split("-").map(Number);
+          const now = new Date();
+          let years = now.getFullYear() - y;
+          const mNow = now.getMonth() + 1; // 1-indexed to match parsed month
+          if (mNow < m || (mNow === m && now.getDate() < d)) years--;
+          return years;
+        }
+        return row.age ?? null;
+      })(),
+      gender: row.gender ?? null,
       householdId: row.household_id,
       householdRole: row.household_role,
       isProfileOwner: row.is_profile_owner,

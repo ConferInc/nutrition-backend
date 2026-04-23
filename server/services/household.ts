@@ -73,6 +73,24 @@ export interface UpdateMemberHealthInput {
   cuisineIds?: string[];
 }
 
+// ── Update Household Type (plan intent) ─────────────────────────────────────
+
+export async function updateHouseholdType(
+  householdId: string,
+  householdType: "individual" | "couple" | "family"
+) {
+  const updated = await db
+    .update(households)
+    .set({ householdType })
+    .where(eq(households.id, householdId))
+    .returning();
+
+  if (updated.length === 0) {
+    throw Object.assign(new Error("Household not found"), { status: 404 });
+  }
+  return updated[0];
+}
+
 // ── Get or Create Household ─────────────────────────────────────────────────
 
 export async function getOrCreateHousehold(b2cCustomerId: string) {
