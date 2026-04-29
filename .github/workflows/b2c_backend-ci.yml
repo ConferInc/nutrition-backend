@@ -13,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write
   pull-requests: read
 
 jobs:
@@ -31,6 +32,17 @@ jobs:
     needs: [ci]
     uses: ConferInc/CI-Pipeline/.github/workflows/reusable-docker-validate.yml@main
     with:
+      context: .
+      dockerfile: Dockerfile
+      build-args: ""
+    secrets: inherit
+
+  deploy:
+    needs: [docker-validate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ConferInc/CI-Pipeline/.github/workflows/reusable-cd-deploy.yml@main
+    with:
+      image-name: nutrition-backend
       context: .
       dockerfile: Dockerfile
       build-args: ""

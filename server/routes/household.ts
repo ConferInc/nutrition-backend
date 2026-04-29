@@ -63,6 +63,48 @@ const updateHealthSchema = z.object({
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
+const updateHouseholdTypeSchema = z.object({
+  householdType: z.enum(["individual", "couple", "family"]),
+});
+
+/**
+ * @openapi
+ * /households:
+ *   patch:
+ *     tags: [Household]
+ *     summary: Update household plan type
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [householdType]
+ *             properties:
+ *               householdType: { type: string, enum: [individual, couple, family] }
+ *     responses:
+ *       200: { description: Household type updated }
+ *       403: { description: Only primary_adult can change plan }
+ */
+router.patch(
+  "/",
+  rateLimitMiddleware,
+  requireHouseholdRole("primary_adult"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const customerId = b2cId(req);
+      const { householdType } = updateHouseholdTypeSchema.parse(req.body);
+      const household = await getOrCreateHousehold(customerId);
+
+      const { updateHouseholdType } = await import("../services/household.js");
+      const updated = await updateHouseholdType(household.id, householdType);
+      res.json({ household: updated });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 /**
  * @openapi
  * /households/members:

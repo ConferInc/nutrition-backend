@@ -1,0 +1,96 @@
+name: Test GitHub App Token
+
+# Manual-only workflow to verify the GitHub App secrets work end-to-end.
+# Safe to run anytime — does not push images, deploy, or modify any state.
+# Run from: Actions tab -> "Test GitHub App Token" -> Run workflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Generate GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: "Check 1 - Token minted successfully"
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Token mint failed - secrets may be invalid"
+            exit 1
+          fi
+          echo "Token minted successfully (length: ${#TOKEN} chars)"
+
+      - name: "Check 2 - App can list its installed repos"
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "Repos this App is installed on:"
+          curl -sf \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/installation/repositories \
+            | jq -r '.repositories[].full_name'
+
+      - name: "Check 3 - GHCR login test (packages permission)"
+        continue-on-error: true
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u x-access-token --password-stdin
+          if [ $? -eq 0 ]; then
+            echo "GHCR login succeeded - App has packages access"
+          else
+            echo "::warning::GHCR login failed - App likely missing packages:read permission"
+          fi
+
+      - name: "Check 4 - Try listing org container packages"
+        continue-on-error: true
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/orgs/ConferInc/packages?package_type=container")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "packages:read confirmed at org level"
+            echo "Container packages found:"
+            echo "$BODY" | jq -r '.[].name' || echo "(no container packages yet)"
+          elif [ "$HTTP_CODE" = "403" ]; then
+            echo "::warning::403 Forbidden - packages:read permission NOT granted to App"
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "::warning::404 - either no permission, or App not installed at org scope"
+          else
+            echo "::warning::Unexpected response: $HTTP_CODE"
+            echo "$BODY"
+          fi
+
+      - name: Summary
+        run: |
+          echo "=== Verification complete ==="
+          echo ""
+          echo "Expected results for a fully-configured App:"
+          echo "  Check 1: PASS  (token minted)"
+          echo "  Check 2: PASS  (lists installed repos)"
+          echo "  Check 3: PASS  (GHCR login works)"
+          echo "  Check 4: PASS  (200 response)"
+          echo ""
+          echo "If Check 3 or 4 fails, the App needs packages:read permission added by an org admin."
