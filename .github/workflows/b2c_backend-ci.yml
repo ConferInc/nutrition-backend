@@ -11,6 +11,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   ci:
     uses: ConferInc/CI-Pipeline/.github/workflows/reusable-node-ci.yml@main
@@ -30,4 +34,16 @@ jobs:
       context: .
       dockerfile: Dockerfile
       build-args: ""
+    secrets: inherit
+
+  deploy:
+    needs: [docker-validate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ConferInc/CI-Pipeline/.github/workflows/reusable-cd-deploy.yml@main
+    with:
+      image-name: nutrition-backend
+      context: .
+      dockerfile: Dockerfile
+      build-args: ""
+      # health-check-url: https://<your-domain>/healthz
     secrets: inherit
