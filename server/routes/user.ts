@@ -417,13 +417,25 @@ router.patch("/health", authMiddleware, rateLimitMiddleware, async (req, res, ne
       const { resolved, unresolved } = await resolveAllergenIds(body.allergens);
       const allResolvedIds = [...resolved];
 
-      // Process unresolved allergens through 3-tier resolution
+      // Process unresolved allergens through 3-tier resolution (parallel)
       if (unresolved.length > 0) {
         const { resolveCustomAllergen } = await import("../services/allergenResolver.js");
         const { allergenBackfill } = await import("../services/allergenClient.js");
 
-        for (const name of unresolved) {
-          const resolution = await resolveCustomAllergen(name);
+        const results = await Promise.allSettled(
+          unresolved.map((name) => resolveCustomAllergen(name))
+        );
+
+        for (let i = 0; i < results.length; i++) {
+          const name = unresolved[i];
+          const result = results[i];
+
+          if (result.status === "rejected") {
+            logger.error(`[user/health] Custom allergen resolution failed for "${name}":`, result.reason);
+            continue;
+          }
+
+          const resolution = result.value;
 
           if (resolution.matched && resolution.allergenId) {
             // Mapped to existing allergen (synonym or LLM)

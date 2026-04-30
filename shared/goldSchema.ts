@@ -146,7 +146,7 @@ export const allergens = gold.table("allergens", {
 
 export const allergenSynonyms = gold.table("allergen_synonyms", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  synonym: varchar("synonym", { length: 255 }).notNull(),
+  synonym: varchar("synonym", { length: 255 }).notNull().unique(),
   canonicalAllergenId: uuid("canonical_allergen_id").notNull(),
   language: varchar("language", { length: 10 }).default("en"),
   createdAt: timestamp("created_at").defaultNow(),

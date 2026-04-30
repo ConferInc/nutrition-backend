@@ -59,10 +59,10 @@ export async function allergenBackfill(
   );
 
   // Fire-and-forget: don't await in the caller's hot path
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
+  try {
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -72,8 +72,6 @@ export async function allergenBackfill(
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
-
-    clearTimeout(timeout);
 
     if (!response.ok) {
       const body = await response.text().catch(() => "<unreadable>");
@@ -93,5 +91,7 @@ export async function allergenBackfill(
       logger.error(`[allergenClient] Pipeline call failed:`, err);
     }
     // Non-critical: user's allergen is already saved in gold.allergens
+  } finally {
+    clearTimeout(timeout);
   }
 }
