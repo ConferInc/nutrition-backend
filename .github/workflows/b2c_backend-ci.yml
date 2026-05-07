@@ -39,7 +39,7 @@ jobs:
 
   deploy:
     needs: [docker-validate]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     uses: ConferInc/CI-Pipeline/.github/workflows/reusable-cd-deploy.yml@main
     with:
       image-name: nutrition-backend
