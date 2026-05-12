@@ -10,4 +10,7 @@ README.md
 **/Thumbs.db
 .env*
 sample_1000_products.csv
+*.pem
+secrets/
+.aws/
 
