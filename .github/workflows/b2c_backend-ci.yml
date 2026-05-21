@@ -20,7 +20,7 @@ jobs:
   ci:
     uses: ConferInc/CI-Pipeline/.github/workflows/reusable-node-ci.yml@main
     with:
-      node-version: "20"
+      node-version: '20'
       working-directory: .
       run-lint: false
       typecheck-command: npm run check
@@ -34,7 +34,7 @@ jobs:
     with:
       context: .
       dockerfile: Dockerfile
-      build-args: ""
+      build-args: ''
     secrets: inherit
 
   deploy-dev:
@@ -45,7 +45,7 @@ jobs:
       image-name: nutrition-backend
       context: .
       dockerfile: Dockerfile
-      build-args: ""
+      build-args: ''
     secrets:
       COOLIFY_DEPLOY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_B2C_BACKEND_DEV }}
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
@@ -58,7 +58,7 @@ jobs:
       image-name: nutrition-backend
       context: .
       dockerfile: Dockerfile
-      build-args: ""
+      build-args: ''
     secrets:
       COOLIFY_DEPLOY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_B2C_BACKEND_STAGING }}
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
@@ -71,7 +71,7 @@ jobs:
       image-name: nutrition-backend
       context: .
       dockerfile: Dockerfile
-      build-args: ""
+      build-args: ''
     secrets:
       COOLIFY_DEPLOY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_B2C_BACKEND_PROD }}
       COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
