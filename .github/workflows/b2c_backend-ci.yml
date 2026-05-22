@@ -2,9 +2,9 @@ name: B2C Backend CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop, staging]
   push:
-    branches: [main]
+    branches: [main, develop, staging]
   workflow_dispatch:
 
 concurrency:
@@ -37,13 +37,41 @@ jobs:
       build-args: ""
     secrets: inherit
 
-  deploy:
+  deploy-dev:
     needs: [docker-validate]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     uses: ConferInc/CI-Pipeline/.github/workflows/reusable-cd-deploy.yml@main
     with:
       image-name: nutrition-backend
       context: .
       dockerfile: Dockerfile
       build-args: ""
-    secrets: inherit
+    secrets:
+      COOLIFY_DEPLOY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_B2C_BACKEND_DEV }}
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+
+  deploy-staging:
+    needs: [docker-validate]
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    uses: ConferInc/CI-Pipeline/.github/workflows/reusable-cd-deploy.yml@main
+    with:
+      image-name: nutrition-backend
+      context: .
+      dockerfile: Dockerfile
+      build-args: ""
+    secrets:
+      COOLIFY_DEPLOY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_B2C_BACKEND_STAGING }}
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+
+  deploy-prod:
+    needs: [docker-validate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    uses: ConferInc/CI-Pipeline/.github/workflows/reusable-cd-deploy.yml@main
+    with:
+      image-name: nutrition-backend
+      context: .
+      dockerfile: Dockerfile
+      build-args: ""
+    secrets:
+      COOLIFY_DEPLOY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_B2C_BACKEND_PROD }}
+      COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
