@@ -34,6 +34,7 @@ export interface InferredAttributes {
   allergens?: string[];
   diets?: string[];
   cuisines?: string[];
+  mealType?: string;
   taste?: string[];
 }
 
@@ -511,6 +512,7 @@ function convertToAnalyzeResult(
         ...(llmResult.diets_incompatible || []).map((d) => `not_${d}`),
       ],
       cuisines: llmResult.cuisine ? [llmResult.cuisine] : [],
+      mealType: llmResult.meal_type || undefined,
       taste: [],
     },
     nutritionPerServing: {
@@ -601,6 +603,8 @@ export async function saveAnalyzedRecipe(
       name: ing.item,
     })) || [],
     instructions: result.steps || [],
+    cuisine: result.inferred?.cuisines?.[0] || undefined,
+    mealType: result.inferred?.mealType || undefined,
     nutrition: {
       calories: result.nutritionPerServing?.calories || null,
       protein_g: result.nutritionPerServing?.protein_g || null,

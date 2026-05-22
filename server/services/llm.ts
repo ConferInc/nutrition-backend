@@ -97,6 +97,7 @@ export interface LLMAnalysisResult {
   diets_incompatible: string[];
   suggestions: string[];
   cuisine?: string;
+  meal_type?: string;
   difficulty?: "easy" | "medium" | "hard";
   prep_time_minutes?: number;
   cook_time_minutes?: number;
@@ -107,7 +108,7 @@ export interface LLMAnalysisResult {
 const RECIPE_ANALYSIS_SYSTEM_PROMPT = `You are a nutrition expert. Extract structured recipe data as JSON.
 
 Required JSON schema:
-{"title":"string","servings":int,"ingredients":[{"qty":number|null,"unit":"string|null","item":"string","calories_per_unit":number,"protein_g":number,"carbs_g":number,"fat_g":number,"sodium_mg":number,"sugar_g":number,"fiber_g":number}],"steps":["string"],"nutrition_per_serving":{"calories":int,"protein_g":number,"carbs_g":number,"fat_g":number,"sodium_mg":number,"sugar_g":number,"fiber_g":number,"potassium_mg":number,"iron_mg":number,"calcium_mg":number,"vitamin_d_mcg":number},"allergens":["string"],"diets_compatible":["string"],"diets_incompatible":["string"],"suggestions":["string"],"cuisine":"string","difficulty":"easy|medium|hard","prep_time_minutes":int,"cook_time_minutes":int}
+{"title":"string","servings":int,"ingredients":[{"qty":number|null,"unit":"string|null","item":"string","calories_per_unit":number,"protein_g":number,"carbs_g":number,"fat_g":number,"sodium_mg":number,"sugar_g":number,"fiber_g":number}],"steps":["string"],"nutrition_per_serving":{"calories":int,"protein_g":number,"carbs_g":number,"fat_g":number,"sodium_mg":number,"sugar_g":number,"fiber_g":number,"potassium_mg":number,"iron_mg":number,"calcium_mg":number,"vitamin_d_mcg":number},"allergens":["string"],"diets_compatible":["string"],"diets_incompatible":["string"],"suggestions":["string"],"cuisine":"string","meal_type":"breakfast|lunch|dinner|snack|dessert","difficulty":"easy|medium|hard","prep_time_minutes":int,"cook_time_minutes":int}
 
 Rules:
 - Estimate nutrition per serving from ingredient quantities
@@ -275,7 +276,7 @@ const VISUAL_FOOD_ANALYSIS_PROMPT = `You are a nutrition expert with food image 
 Based on what you visually identify, estimate the recipe details and return structured JSON.
 
 Required JSON schema:
-{"title":"string","servings":int,"ingredients":[{"qty":number|null,"unit":"string|null","item":"string","calories_per_unit":number,"protein_g":number,"carbs_g":number,"fat_g":number,"sodium_mg":number,"sugar_g":number,"fiber_g":number}],"steps":["string"],"nutrition_per_serving":{"calories":int,"protein_g":number,"carbs_g":number,"fat_g":number,"sodium_mg":number,"sugar_g":number,"fiber_g":number,"potassium_mg":number,"iron_mg":number,"calcium_mg":number,"vitamin_d_mcg":number},"allergens":["string"],"diets_compatible":["string"],"diets_incompatible":["string"],"suggestions":["string"],"cuisine":"string","difficulty":"easy|medium|hard","prep_time_minutes":int,"cook_time_minutes":int}
+{"title":"string","servings":int,"ingredients":[{"qty":number|null,"unit":"string|null","item":"string","calories_per_unit":number,"protein_g":number,"carbs_g":number,"fat_g":number,"sodium_mg":number,"sugar_g":number,"fiber_g":number}],"steps":["string"],"nutrition_per_serving":{"calories":int,"protein_g":number,"carbs_g":number,"fat_g":number,"sodium_mg":number,"sugar_g":number,"fiber_g":number,"potassium_mg":number,"iron_mg":number,"calcium_mg":number,"vitamin_d_mcg":number},"allergens":["string"],"diets_compatible":["string"],"diets_incompatible":["string"],"suggestions":["string"],"cuisine":"string","meal_type":"breakfast|lunch|dinner|snack|dessert","difficulty":"easy|medium|hard","prep_time_minutes":int,"cook_time_minutes":int}
 
 Rules:
 - Identify the dish from the image visually (color, texture, shape, plating)

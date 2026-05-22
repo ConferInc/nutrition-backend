@@ -9,6 +9,7 @@ import {
 } from "../../shared/goldSchema.js";
 import { resolveCuisineIds } from "./b2cTaxonomy.js";
 import { getRecipeIngredients, getRecipeNutritionMap } from "./recipeHydration.js";
+import { recipeBackfill } from "./contentPipelineClient.js";
 
 type AnyObj = Record<string, any>;
 
@@ -76,13 +77,30 @@ function inferSourceType(name: string): string | null {
 
 // Fix 5+6: Case-insensitive matching + enriched creation
 async function getOrCreateIngredientId(name: string) {
-  // Fix 6: case-insensitive matching to avoid duplicates
+  // Tier 1: Case-insensitive exact match (existing)
   const existing = await db
     .select()
     .from(ingredients)
     .where(ilike(ingredients.name, name))
     .limit(1);
   if (existing[0]?.id) return existing[0].id;
+
+  // Tier 2: Synonym lookup
+  const synonymMatch = await executeRaw(
+    `SELECT canonical_ingredient_id::text AS id
+     FROM gold.ingredient_synonyms
+     WHERE LOWER(synonym) = LOWER($1)
+     LIMIT 1`,
+    [name.trim()]
+  );
+  if (synonymMatch[0]?.id) return synonymMatch[0].id;
+
+  // Tier 3: Trigram similarity (uses existing DB function, threshold 0.7)
+  const trigramMatch = await executeRaw(
+    `SELECT id::text FROM gold.search_ingredients_trigram($1, 0.7, 1)`,
+    [name.trim()]
+  );
+  if (trigramMatch[0]?.id) return trigramMatch[0].id;
 
   // Fix 5: Enrich new ingredients with metadata
   const created = await db
@@ -262,6 +280,29 @@ export async function createUserRecipe(b2cCustomerId: string, payload: AnyObj) {
   await replaceRecipeNutrition(row.id, input.nutrition);
   await replaceRecipeNutritionProfile(row.id, input.nutrition, input.servings);
 
+  // Fire-and-forget: trigger content pipeline to create bronze lineage + USDA enrichment
+  recipeBackfill(
+    row.id,
+    {
+      title: input.title,
+      description: input.description,
+      servings: input.servings,
+      cuisine: input.cuisineLabel,
+      meal_type: input.mealType,
+      prep_time: input.prepTimeMinutes,
+      cook_time: input.cookTimeMinutes,
+      instructions: input.instructions,
+      nutrition: input.nutrition,
+    },
+    input.ingredients.map((i: IngredientInput) => ({
+      item: (i.item ?? i.name ?? "").toString().trim(),
+      qty: i.qty ? Number(i.qty) : undefined,
+      unit: i.unit ?? undefined,
+    })),
+    "user_generated",
+    b2cCustomerId
+  ).catch(() => {}); // non-critical — recipe is already saved
+
   return row;
 }
 
@@ -296,10 +337,34 @@ export async function updateUserRecipe(b2cCustomerId: string, recipeId: string, 
   if (updates.ingredients) {
     await replaceRecipeIngredients(recipeId, input.ingredients);
   }
-  if (updates.calories !== undefined || updates.protein_g !== undefined) {
+  if (updates.nutrition || updates.calories !== undefined || updates.protein_g !== undefined ||
+      updates.fat_g !== undefined || updates.fiber_g !== undefined || updates.sugar_g !== undefined) {
     await replaceRecipeNutrition(recipeId, input.nutrition);
     await replaceRecipeNutritionProfile(recipeId, input.nutrition, input.servings);
   }
+
+  // Fire-and-forget: update bronze lineage (idempotent via data_hash)
+  recipeBackfill(
+    recipeId,
+    {
+      title: input.title,
+      description: input.description,
+      servings: input.servings,
+      cuisine: input.cuisineLabel,
+      meal_type: input.mealType,
+      prep_time: input.prepTimeMinutes,
+      cook_time: input.cookTimeMinutes,
+      instructions: input.instructions,
+      nutrition: input.nutrition,
+    },
+    input.ingredients.map((i: IngredientInput) => ({
+      item: (i.item ?? i.name ?? "").toString().trim(),
+      qty: i.qty ? Number(i.qty) : undefined,
+      unit: i.unit ?? undefined,
+    })),
+    "user_generated",
+    b2cCustomerId
+  ).catch(() => {}); // non-critical — recipe is already saved
 
   return updated[0];
 }
@@ -335,9 +400,12 @@ export async function getUserRecipe(b2cCustomerId: string, recipeId: string) {
 }
 
 export async function deleteUserRecipe(b2cCustomerId: string, recipeId: string) {
-  await db.delete(recipes).where(and(eq(recipes.id, recipeId), eq(recipes.createdByUserId, b2cCustomerId)));
+  // Delete child rows first to respect FK constraints
   await executeRaw(`delete from gold.recipe_ingredients where recipe_id = $1`, [recipeId]);
   await executeRaw(`delete from gold.nutrition_facts where entity_type = 'recipe' and entity_id = $1`, [recipeId]);
+  await db.delete(recipeNutritionProfiles).where(eq(recipeNutritionProfiles.recipeId, recipeId));
+  // Delete parent row last
+  await db.delete(recipes).where(and(eq(recipes.id, recipeId), eq(recipes.createdByUserId, b2cCustomerId)));
 }
 
 export async function shareUserRecipe(_userId: string, recipeId: string) {
