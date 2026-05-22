@@ -209,7 +209,9 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const customerId = b2cId(req);
-      const result = await saveAnalyzedRecipe(req.body, customerId);
+      // Frontend sends { result: {...} }, unwrap if needed (backward-compatible)
+      const payload = req.body?.result ?? req.body;
+      const result = await saveAnalyzedRecipe(payload, customerId);
       trackFeature(customerId, "analyzer", "save");
       res.status(201).json(result);
     } catch (err) {

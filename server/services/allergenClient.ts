@@ -1,14 +1,15 @@
 // server/services/allergenClient.ts
 // Fire-and-forget HTTP client for the Allergen Backfill Pipeline
 // Mirrors ragClient.ts pattern but simpler (no circuit breaker needed — async, non-critical path)
+// Supports both unified content-pipeline (preferred) and legacy allergen-pipeline
 
 import { logger } from "../config/logger.js";
 
 // ── Configuration ────────────────────────────────────────────────────────────
-
-const ALLERGEN_API_URL = process.env.ALLERGEN_API_URL || "";
-const ALLERGEN_API_KEY = process.env.ALLERGEN_API_KEY || "";
-const USE_ALLERGEN_PIPELINE = process.env.USE_ALLERGEN_PIPELINE === "true";
+// Prefer content-pipeline URL; fall back to standalone allergen API
+const ALLERGEN_API_URL = process.env.CONTENT_PIPELINE_URL || process.env.ALLERGEN_API_URL || "";
+const ALLERGEN_API_KEY = process.env.CONTENT_PIPELINE_API_KEY || process.env.ALLERGEN_API_KEY || "";
+const USE_ALLERGEN_PIPELINE = process.env.USE_ALLERGEN_PIPELINE === "true" || process.env.USE_CONTENT_PIPELINE === "true";
 const TIMEOUT_MS = 15_000; // Pipeline may invoke LLM for ingredient matching
 
 // ── Public API ───────────────────────────────────────────────────────────────
