@@ -95,7 +95,12 @@ async function getOrCreateIngredientId(name: string) {
   );
   if (synonymMatch[0]?.id) return synonymMatch[0].id;
 
-  // Tier 3: Trigram similarity (uses existing DB function, threshold 0.7)
+  // Tier 3: Trigram similarity — pg_trgm extension + GIN index confirmed in
+  // migration 016_ingredient_search_and_unit_conversions.sql:
+  //   CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  //   CREATE INDEX IF NOT EXISTS idx_ingredients_name_trgm
+  //     ON gold.ingredients USING GIN (name gin_trgm_ops);
+  // No additional migration required; safe for production use.
   const trigramMatch = await executeRaw(
     `SELECT id::text FROM gold.search_ingredients_trigram($1, 0.7, 1)`,
     [name.trim()]

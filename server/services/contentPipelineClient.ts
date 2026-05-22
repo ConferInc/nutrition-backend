@@ -47,6 +47,11 @@ export async function recipeBackfill(
     return;
   }
 
+  if (!CONTENT_PIPELINE_API_KEY) {
+    logger.warn("[contentPipeline] CONTENT_PIPELINE_API_KEY not configured, skipping backfill");
+    return;
+  }
+
   const url = `${CONTENT_PIPELINE_URL}/recipes/backfill`;
   const payload = {
     gold_recipe_id: goldRecipeId,
